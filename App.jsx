@@ -1,17 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts";
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   MATH ENGINE  (mirrors src/bond.py exactly)
-───────────────────────────────────────────────────────────────────────────── */
-
+/* ─── MATH ENGINE ─────────────────────────────────────────────────────────── */
 function calcPrice(face, couponRate, periods, freq, ytm) {
   const C = (couponRate / freq) * face;
   const y = ytm / freq;
   const N = periods * freq;
   if (Math.abs(y) < 1e-12) return C * N + face;
-  const pvC = C * (1 - Math.pow(1 + y, -N)) / y;
-  const pvF = face / Math.pow(1 + y, N);
-  return pvC + pvF;
+  return C * (1 - Math.pow(1 + y, -N)) / y + face / Math.pow(1 + y, N);
 }
 
 function solveYTM(face, couponRate, periods, freq, price) {
@@ -28,315 +24,212 @@ function solveYTM(face, couponRate, periods, freq, price) {
   return y;
 }
 
-function calcAccrued(face, couponRate, freq, daysSince, daysInPeriod) {
-  const coupon = (couponRate / freq) * face;
-  return coupon * (daysSince / daysInPeriod);
-}
-
 function buildCashFlows(face, couponRate, periods, freq, ytm) {
-  const C   = (couponRate / freq) * face;
-  const y   = ytm / freq;
-  const N   = periods * freq;
-  const P   = calcPrice(face, couponRate, periods, freq, ytm);
-  const rows = [];
-  for (let t = 1; t <= N; t++) {
-    const cf  = t < N ? C : C + face;
-    const pv  = cf / Math.pow(1 + y, t);
-    const w   = pv / P;
-    const tYr = t / freq;
-    rows.push({ t, tYr, cf, pv, w, durContrib: tYr * w });
-  }
-  return rows;
+  const C = (couponRate / freq) * face;
+  const y = ytm / freq;
+  const N = periods * freq;
+  const P = calcPrice(face, couponRate, periods, freq, ytm);
+  return Array.from({ length: N }, (_, i) => {
+    const t  = i + 1;
+    const cf = t < N ? C : C + face;
+    const pv = cf / Math.pow(1 + y, t);
+    const w  = pv / P;
+    return { t, tYr: t / freq, cf, pv, w, durContrib: (t / freq) * w };
+  });
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   TINY REUSABLE COMPONENTS
-───────────────────────────────────────────────────────────────────────────── */
+function macaulayDuration(cfRows)           { return cfRows.reduce((s, r) => s + r.durContrib, 0); }
+function modifiedDuration(mac, ytm, freq)   { return mac / (1 + ytm / freq); }
+function dv01PerBond(modDur, price)         { return modDur * price * 0.0001; }
+function positionDv01(dv01, notional, face) { return dv01 * (notional / face); }
 
-const AMBER   = "#F0A500";
-const GREEN   = "#4CAF92";
-const RED     = "#E05A4E";
-const BG      = "#070709";
-const SURFACE = "#0C0C0F";
-const BORDER  = "#18181C";
-const MUTED   = "#333340";
-const DIM     = "#55556A";
-const TEXT    = "#E2E2EE";
+function buildScenarios(face, cr, periods, freq, ytm, price, modDur) {
+  return [-200, -100, -50, -25, 25, 50, 100, 200].map(bp => {
+    const dy     = bp / 10000;
+    const newYTM = Math.max(0.0001, ytm + dy);
+    const exactP = calcPrice(face, cr, periods, freq, newYTM);
+    const approxP= price * (1 - modDur * dy);
+    return { bp, label: `${bp > 0 ? "+" : ""}${bp}`, exact: exactP - price, approx: approxP - price, exactP, newYTM };
+  });
+}
 
-function Label({ children }) {
+/* ─── TOKENS ──────────────────────────────────────────────────────────────── */
+const A  = "#F0A500";
+const G  = "#4CAF92";
+const R  = "#E05A4E";
+const BG     = "#111110";
+const BORDER = "#222220";
+const TEXT   = "#EEECEA";
+const MUTED  = "#666460";
+const DIM    = "#3A3A38";
+const FAINT  = "#2A2A28";
+
+/* ─── PRIMITIVES ──────────────────────────────────────────────────────────── */
+function Label({ children, amber }) {
   return (
     <div style={{
       fontFamily: "'IBM Plex Mono', monospace",
-      fontSize: 9,
-      letterSpacing: "0.18em",
+      fontSize: 10,
+      letterSpacing: "0.14em",
       textTransform: "uppercase",
-      color: DIM,
-      marginBottom: 5,
+      color: amber ? A : MUTED,
+      marginBottom: 6,
     }}>
       {children}
     </div>
   );
 }
 
-function KpiCard({ label, value, sub, highlight, delay = 0 }) {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const t = setTimeout(() => setVisible(true), delay);
-    return () => clearTimeout(t);
-  }, [delay]);
-
+function NumInput({ value, onChange, step, min, max }) {
+  const [focused, setFocused] = useState(false);
   return (
-    <div style={{
-      background: SURFACE,
-      border: `1px solid ${highlight ? AMBER + "44" : BORDER}`,
-      padding: "14px 18px",
-      opacity: visible ? 1 : 0,
-      transform: visible ? "translateY(0)" : "translateY(8px)",
-      transition: "opacity 0.4s ease, transform 0.4s ease",
-      position: "relative",
-      overflow: "hidden",
-    }}>
-      {highlight && (
-        <div style={{
-          position: "absolute", top: 0, left: 0, right: 0, height: 1,
-          background: `linear-gradient(90deg, transparent, ${AMBER}, transparent)`,
-        }} />
-      )}
-      <Label>{label}</Label>
-      <div style={{
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 20,
-        fontWeight: 600,
-        color: highlight ? AMBER : TEXT,
-        letterSpacing: "-0.02em",
-        lineHeight: 1,
-      }}>
-        {value}
-      </div>
-      {sub && (
-        <div style={{
-          fontFamily: "'IBM Plex Mono', monospace",
-          fontSize: 10,
-          color: MUTED,
-          marginTop: 5,
-        }}>
-          {sub}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FieldGroup({ label, children }) {
-  return (
-    <div style={{ marginBottom: 18 }}>
-      <Label>{label}</Label>
-      {children}
-    </div>
-  );
-}
-
-const inputStyle = {
-  width: "100%",
-  background: "#0A0A0D",
-  border: `1px solid ${BORDER}`,
-  color: TEXT,
-  fontFamily: "'IBM Plex Mono', monospace",
-  fontSize: 13,
-  padding: "7px 10px",
-  outline: "none",
-  transition: "border-color 0.15s",
-  boxSizing: "border-box",
-};
-
-function NumInput({ value, onChange, step, min, max, disabled }) {
-  return (
-    <input
-      type="number"
-      value={value}
+    <input type="number" value={value} step={step} min={min} max={max}
       onChange={e => onChange(e.target.value)}
-      step={step}
-      min={min}
-      max={max}
-      disabled={disabled}
-      style={{ ...inputStyle, opacity: disabled ? 0.4 : 1, cursor: disabled ? "not-allowed" : "text" }}
-      onFocus={e => { if (!disabled) e.target.style.borderColor = AMBER; }}
-      onBlur={e => { e.target.style.borderColor = BORDER; }}
+      style={{ width: "100%", background: "transparent", border: "none", borderBottom: `1px solid ${focused ? A : BORDER}`, color: TEXT, fontFamily: "'IBM Plex Mono', monospace", fontSize: 14, padding: "4px 0 7px", outline: "none", transition: "border-color 0.15s", boxSizing: "border-box" }}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
     />
   );
 }
 
-function ToggleGroup({ value, onChange, options }) {
+function FreqToggle({ value, onChange }) {
   return (
-    <div style={{ display: "flex", gap: 1 }}>
-      {options.map(opt => (
-        <button
-          key={opt.value}
-          onClick={() => onChange(opt.value)}
-          style={{
-            flex: 1,
-            padding: "7px 4px",
-            background: value === opt.value ? AMBER : "#0A0A0D",
-            color: value === opt.value ? "#070709" : DIM,
-            border: `1px solid ${value === opt.value ? AMBER : BORDER}`,
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 11,
-            fontWeight: value === opt.value ? 600 : 400,
-            cursor: "pointer",
-            letterSpacing: "0.1em",
-            transition: "all 0.15s",
-          }}
-        >
-          {opt.label}
+    <div style={{ display: "flex", gap: 20 }}>
+      {[{ v: 1, l: "Annual" }, { v: 2, l: "Semi-annual" }].map(({ v, l }) => (
+        <label key={v} onClick={() => onChange(v)} style={{ display: "flex", alignItems: "center", gap: 7, cursor: "pointer", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: value === v ? A : MUTED, transition: "color 0.15s" }}>
+          <div style={{ width: 13, height: 13, border: `1px solid ${value === v ? A : DIM}`, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, transition: "border-color 0.15s" }}>
+            {value === v && <div style={{ width: 5, height: 5, borderRadius: "50%", background: A }} />}
+          </div>
+          {l}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function ModeToggle({ value, onChange }) {
+  return (
+    <div style={{ display: "inline-flex", border: `1px solid ${BORDER}`, marginBottom: 32 }}>
+      {[{ id: "price", l: "YTM → Price" }, { id: "ytm", l: "Price → YTM" }].map(({ id, l }) => (
+        <button key={id} onClick={() => onChange(id)} style={{ padding: "8px 18px", background: value === id ? A : "transparent", color: value === id ? BG : MUTED, border: "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.15s", fontWeight: value === id ? 600 : 400 }}>
+          {l}
         </button>
       ))}
     </div>
   );
 }
 
-function SectionDivider({ children }) {
+function Field({ label, children }) {
   return (
-    <div style={{
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      margin: "22px 0 18px",
-    }}>
-      <div style={{ width: 4, height: 4, background: AMBER, transform: "rotate(45deg)" }} />
-      <span style={{
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 9,
-        letterSpacing: "0.22em",
-        textTransform: "uppercase",
-        color: AMBER,
-      }}>
-        {children}
-      </span>
-      <div style={{ flex: 1, height: 1, background: BORDER }} />
+    <div style={{ marginBottom: 20 }}>
+      <Label>{label}</Label>
+      {children}
     </div>
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   SOLVE MODE TOGGLE
-───────────────────────────────────────────────────────────────────────────── */
-
-function SolveToggle({ mode, onChange }) {
-  return (
-    <div style={{
-      display: "flex",
-      background: "#0A0A0D",
-      border: `1px solid ${BORDER}`,
-      marginBottom: 22,
-      position: "relative",
-    }}>
-      {[
-        { id: "price", label: "YTM → Price" },
-        { id: "ytm",   label: "Price → YTM"  },
-      ].map(opt => (
-        <button
-          key={opt.id}
-          onClick={() => onChange(opt.id)}
-          style={{
-            flex: 1,
-            padding: "9px 0",
-            background: mode === opt.id ? AMBER + "15" : "transparent",
-            color: mode === opt.id ? AMBER : DIM,
-            border: "none",
-            borderBottom: mode === opt.id ? `2px solid ${AMBER}` : "2px solid transparent",
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 10,
-            letterSpacing: "0.15em",
-            textTransform: "uppercase",
-            cursor: "pointer",
-            transition: "all 0.2s",
-          }}
-        >
-          {opt.label}
-        </button>
-      ))}
-    </div>
-  );
+function Divider() {
+  return <div style={{ height: 1, background: BORDER, margin: "24px 0" }} />;
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   CASH FLOW TABLE
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── TOOLTIPS ────────────────────────────────────────────────────────────── */
+const DurTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "8px 12px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+      <div style={{ color: A, marginBottom: 4 }}>t = {label}y</div>
+      <div style={{ color: TEXT }}>Contribution: {payload[0]?.value?.toFixed(4)} yr</div>
+    </div>
+  );
+};
 
-function CashFlowTable({ rows, totalDur }) {
-  const maxPV = Math.max(...rows.map(r => r.pv));
+const ScenarioTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "8px 12px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+      <div style={{ color: A, marginBottom: 4 }}>{label} bps</div>
+      <div style={{ color: TEXT }}>Exact: {payload[0]?.value > 0 ? "+" : ""}{payload[0]?.value?.toFixed(4)}</div>
+      <div style={{ color: MUTED }}>Approx: {payload[1]?.value > 0 ? "+" : ""}{payload[1]?.value?.toFixed(4)}</div>
+    </div>
+  );
+};
+
+/* ─── PRICING TAB ─────────────────────────────────────────────────────────── */
+function PricingTab({ face, cr, periods, freq, ytm, mode, daysSince, daysInPer }) {
+  const dirty   = calcPrice(face, cr, periods, freq, ytm);
+  const accrued = (cr / freq) * face * (daysSince / daysInPer);
+  const clean   = dirty - accrued;
+  const cfRows  = buildCashFlows(face, cr, periods, freq, ytm);
+  const macDur  = macaulayDuration(cfRows);
+  const maxPV   = Math.max(...cfRows.map(r => r.pv));
+
+  const parLabel = dirty > face * 1.001 ? "premium" : dirty < face * 0.999 ? "discount" : "par";
+  const parColor = dirty > face * 1.001 ? G : dirty < face * 0.999 ? R : TEXT;
+  const parDiff  = ((dirty / face - 1) * 100).toFixed(3);
 
   return (
-    <div style={{ overflowX: "auto" }}>
-      <table style={{
-        width: "100%",
-        borderCollapse: "collapse",
-        fontFamily: "'IBM Plex Mono', monospace",
-        fontSize: 11,
-      }}>
+    <div style={{ padding: "36px 48px", overflowY: "auto" }}>
+
+      {/* Primary */}
+      <div style={{ marginBottom: 36 }}>
+        <Label amber>{mode === "price" ? "Dirty price" : "Solved YTM"}</Label>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 40, fontWeight: 300, color: A, letterSpacing: "-0.04em", lineHeight: 1 }}>
+          {mode === "price" ? `$${dirty.toFixed(4)}` : `${(ytm * 100).toFixed(6)}%`}
+        </div>
+      </div>
+
+      {/* Secondary trio */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", marginBottom: 8 }}>
+        {[["Clean price", `$${clean.toFixed(4)}`], ["Accrued interest", `$${accrued.toFixed(4)}`], ["Macaulay duration", `${macDur.toFixed(4)} yr`]].map(([l, v], i) => (
+          <div key={l} style={{ borderLeft: i > 0 ? `1px solid ${BORDER}` : "none", paddingLeft: i > 0 ? 28 : 0, paddingRight: 28 }}>
+            <Label>{l}</Label>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, color: TEXT, letterSpacing: "-0.01em" }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Par line */}
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginBottom: 36, marginTop: 12 }}>
+        Trading at <span style={{ color: parColor }}>{parLabel}</span>
+        <span style={{ color: DIM }}> · </span>
+        {parDiff}% {dirty >= face ? "above" : "below"} par
+      </div>
+
+      <Divider />
+
+      {/* Cash flow table */}
+      <Label>Cash flows</Label>
+      <div style={{ marginTop: 12 }} />
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
         <thead>
           <tr>
-            {["Period", "Time (yr)", "Cash Flow ($)", "PV of CF ($)", "PV Weight", "Duration Contrib (yr)"].map(h => (
-              <th key={h} style={{
-                padding: "8px 12px",
-                textAlign: h === "Period" ? "left" : "right",
-                color: DIM,
-                fontSize: 9,
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                borderBottom: `1px solid ${BORDER}`,
-                fontWeight: 400,
-                whiteSpace: "nowrap",
-              }}>
-                {h}
-              </th>
+            {["Period", "Time", "Cash flow", "PV", "Weight", "Dur. contrib"].map((h, i) => (
+              <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
             ))}
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, i) => {
-            const isFinal = i === rows.length - 1;
+          {cfRows.map((row, i) => {
+            const isFinal = i === cfRows.length - 1;
             return (
-              <tr key={row.t} style={{ transition: "background 0.15s" }}
-                onMouseEnter={e => e.currentTarget.style.background = "#FFFFFF05"}
-                onMouseLeave={e => e.currentTarget.style.background = "transparent"}
-              >
-                <td style={{ padding: "7px 12px", color: DIM, borderBottom: `1px solid ${BORDER}88` }}>{row.t}</td>
-                <td style={{ padding: "7px 12px", textAlign: "right", color: DIM, borderBottom: `1px solid ${BORDER}88` }}>{row.tYr.toFixed(1)}</td>
-                <td style={{ padding: "7px 12px", textAlign: "right", color: isFinal ? AMBER : TEXT, borderBottom: `1px solid ${BORDER}88` }}>
-                  {row.cf.toFixed(2)}
-                </td>
-                <td style={{ padding: "7px 12px", textAlign: "right", color: TEXT, borderBottom: `1px solid ${BORDER}88` }}>
-                  {row.pv.toFixed(4)}
-                </td>
-                <td style={{ padding: "7px 12px", borderBottom: `1px solid ${BORDER}88` }}>
+              <tr key={row.t} onMouseEnter={e => e.currentTarget.style.background = "#FFFFFF04"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{row.t}</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{row.tYr.toFixed(1)}y</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: isFinal ? A : TEXT, fontWeight: isFinal ? 500 : 400, borderBottom: `1px solid ${BORDER}` }}>{row.cf.toFixed(2)}</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: TEXT, borderBottom: `1px solid ${BORDER}` }}>{row.pv.toFixed(4)}</td>
+                <td style={{ padding: "8px 0", borderBottom: `1px solid ${BORDER}` }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
-                    <div style={{
-                      width: Math.max(2, (row.pv / maxPV) * 72),
-                      height: 5,
-                      background: isFinal ? AMBER : "#2A3A2A",
-                      transition: "width 0.3s ease",
-                    }} />
-                    <span style={{ color: DIM, minWidth: 42, textAlign: "right" }}>
-                      {(row.w * 100).toFixed(2)}%
-                    </span>
+                    <div style={{ width: Math.max(2, (row.pv / maxPV) * 60), height: 2, background: isFinal ? A : DIM, transition: "width 0.3s" }} />
+                    <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, minWidth: 38, textAlign: "right" }}>{(row.w * 100).toFixed(1)}%</span>
                   </div>
                 </td>
-                <td style={{ padding: "7px 12px", textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}88` }}>
-                  {row.durContrib.toFixed(4)}
-                </td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{row.durContrib.toFixed(4)}</td>
               </tr>
             );
           })}
-
-          {/* Totals row */}
           <tr>
-            <td colSpan={5} style={{ padding: "10px 12px", color: DIM, fontSize: 9, letterSpacing: "0.15em", textTransform: "uppercase", borderTop: `1px solid ${BORDER}` }}>
-              Σ Duration Contributions = Macaulay Duration
-            </td>
-            <td style={{ padding: "10px 12px", textAlign: "right", color: AMBER, fontWeight: 600, borderTop: `1px solid ${BORDER}` }}>
-              {totalDur.toFixed(4)} yr
-            </td>
+            <td colSpan={5} style={{ padding: "12px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED }}>Macaulay duration</td>
+            <td style={{ padding: "12px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: A, fontWeight: 500 }}>{macDur.toFixed(4)} yr</td>
           </tr>
         </tbody>
       </table>
@@ -344,384 +237,244 @@ function CashFlowTable({ rows, totalDur }) {
   );
 }
 
-/* ─────────────────────────────────────────────────────────────────────────────
-   MAIN APP
-───────────────────────────────────────────────────────────────────────────── */
+/* ─── RISK TAB ────────────────────────────────────────────────────────────── */
+function RiskTab({ face, cr, periods, freq, ytm, notional }) {
+  const price     = calcPrice(face, cr, periods, freq, ytm);
+  const cfRows    = buildCashFlows(face, cr, periods, freq, ytm);
+  const macDur    = macaulayDuration(cfRows);
+  const modDur    = modifiedDuration(macDur, ytm, freq);
+  const dv01Bond  = dv01PerBond(modDur, price);
+  const posDv01   = positionDv01(dv01Bond, notional, face);
+  const scenarios = buildScenarios(face, cr, periods, freq, ytm, price, modDur);
 
+  const durData = cfRows.map(r => ({
+    label: r.tYr.toFixed(1),
+    contrib: +r.durContrib.toFixed(5),
+    isFinal: r.t === cfRows.length,
+  }));
+
+  return (
+    <div style={{ padding: "36px 48px", overflowY: "auto" }}>
+
+      {/* Primary — Modified Duration */}
+      <div style={{ marginBottom: 36 }}>
+        <Label amber>Modified duration</Label>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 40, fontWeight: 300, color: A, letterSpacing: "-0.04em", lineHeight: 1 }}>
+          {modDur.toFixed(4)}
+        </div>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginTop: 8 }}>
+          D_mac / (1 + {(ytm / freq * 100).toFixed(2)}%) = {macDur.toFixed(4)} / {(1 + ytm / freq).toFixed(4)}
+        </div>
+      </div>
+
+      {/* Secondary trio */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", marginBottom: 36 }}>
+        {[
+          ["Macaulay duration", `${macDur.toFixed(4)} yr`],
+          ["DV01 — per bond",   `$${dv01Bond.toFixed(4)}`],
+          [`DV01 — $${(notional/1e6).toFixed(0)}M position`, `$${posDv01.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`],
+        ].map(([l, v], i) => (
+          <div key={l} style={{ borderLeft: i > 0 ? `1px solid ${BORDER}` : "none", paddingLeft: i > 0 ? 28 : 0, paddingRight: 28 }}>
+            <Label>{l}</Label>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, color: TEXT, letterSpacing: "-0.01em" }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      <Divider />
+
+      {/* Duration contribution chart */}
+      <Label>Duration contribution by period</Label>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, margin: "8px 0 20px" }}>
+        Each bar = <span style={{ color: A }}>t × PV(CFₜ) / P</span>
+        <span style={{ color: DIM }}> · </span>
+        bars sum to <span style={{ color: TEXT }}>{macDur.toFixed(4)} yr</span>
+      </div>
+      <ResponsiveContainer width="100%" height={160}>
+        <BarChart data={durData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barSize={periods <= 5 ? 28 : 14}>
+          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
+          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={40} />
+          <Tooltip content={<DurTooltip />} cursor={{ fill: "rgba(240,165,0,0.03)" }} />
+          <Bar dataKey="contrib" radius={[2, 2, 0, 0]}>
+            {durData.map((d, i) => <Cell key={i} fill={d.isFinal ? A : DIM} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+
+      <Divider />
+
+      {/* Scenario chart */}
+      <Label>Rate shock scenarios</Label>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, margin: "8px 0 20px" }}>
+        <span style={{ color: A }}>Solid</span> = exact reprice
+        <span style={{ color: DIM }}> · </span>
+        <span style={{ color: MUTED }}>Faded</span> = duration approx
+        <span style={{ color: DIM }}> · </span>
+        gap = convexity benefit <span style={{ color: DIM }}>(Day 3)</span>
+      </div>
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={scenarios} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barGap={3} barSize={16}>
+          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
+          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={52} tickFormatter={v => v.toFixed(1)} />
+          <Tooltip content={<ScenarioTooltip />} cursor={{ fill: "rgba(240,165,0,0.03)" }} />
+          <ReferenceLine y={0} stroke={BORDER} />
+          <Bar dataKey="exact" radius={[2, 2, 0, 0]}>
+            {scenarios.map((s, i) => <Cell key={i} fill={s.exact >= 0 ? A : R} />)}
+          </Bar>
+          <Bar dataKey="approx" radius={[2, 2, 0, 0]}>
+            {scenarios.map((s, i) => <Cell key={i} fill={s.approx >= 0 ? A + "33" : R + "33"} />)}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+
+      {/* Scenario table */}
+      <div style={{ marginTop: 24 }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead>
+            <tr>
+              {["Shock", "New YTM", "New price", "Δ Price", "Δ Price (approx)", "Error"].map((h, i) => (
+                <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {scenarios.map(s => (
+              <tr key={s.bp} onMouseEnter={e => e.currentTarget.style.background = "#FFFFFF04"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: TEXT, borderBottom: `1px solid ${BORDER}` }}>{s.label}</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{(s.newYTM * 100).toFixed(3)}%</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: TEXT, borderBottom: `1px solid ${BORDER}` }}>{s.exactP.toFixed(4)}</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: s.exact >= 0 ? A : R, borderBottom: `1px solid ${BORDER}` }}>{s.exact >= 0 ? "+" : ""}{s.exact.toFixed(4)}</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{s.approx >= 0 ? "+" : ""}{s.approx.toFixed(4)}</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: DIM, borderBottom: `1px solid ${BORDER}` }}>{(s.exact - s.approx).toFixed(4)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: MUTED, marginTop: 10 }}>
+          Error = exact − duration approx. Always positive for option-free bonds — convexity benefit covered on Day 3.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── MAIN ────────────────────────────────────────────────────────────────── */
 export default function App() {
-  // ── Inputs ────────────────────────────────────────────────────────────────
-  const [face,        setFace]        = useState(1000);
-  const [couponPct,   setCouponPct]   = useState(5.0);
-  const [periods,     setPeriods]     = useState(5);
-  const [freq,        setFreq]        = useState(2);
-  const [ytmPct,      setYtmPct]      = useState(6.0);
-  const [priceInput,  setPriceInput]  = useState("");
-  const [daysSince,   setDaysSince]   = useState(30);
-  const [daysInPer,   setDaysInPer]   = useState(180);
-  const [solveMode,   setSolveMode]   = useState("price"); // "price" | "ytm"
+  const [face,       setFace]       = useState(1000);
+  const [couponPct,  setCouponPct]  = useState(5.0);
+  const [periods,    setPeriods]    = useState(5);
+  const [freq,       setFreq]       = useState(2);
+  const [ytmPct,     setYtmPct]     = useState(6.0);
+  const [priceInput, setPriceInput] = useState("");
+  const [daysSince,  setDaysSince]  = useState(30);
+  const [daysInPer,  setDaysInPer]  = useState(180);
+  const [mode,       setMode]       = useState("price");
+  const [notional,   setNotional]   = useState(10000000);
+  const [activeTab,  setActiveTab]  = useState("pricing");
 
-  // ── Derived values ────────────────────────────────────────────────────────
-  const couponRate = couponPct / 100;
+  const cr  = couponPct / 100;
+  const ytm = mode === "price"
+    ? ytmPct / 100
+    : (() => { const p = parseFloat(priceInput); return isNaN(p) || p <= 0 ? cr : solveYTM(face, cr, periods, freq, p); })();
 
-  const { ytm, dirtyPrice, cleanPrice, accrued, cfRows, macDur, solvedYTM } =
-    useCallback(() => {
-      let ytm, dirtyPrice, solvedYTM = null;
-
-      if (solveMode === "price") {
-        ytm        = ytmPct / 100;
-        dirtyPrice = calcPrice(face, couponRate, periods, freq, ytm);
-      } else {
-        const p    = parseFloat(priceInput);
-        dirtyPrice = isNaN(p) ? 0 : p;
-        solvedYTM  = isNaN(p) || p <= 0
-          ? null
-          : solveYTM(face, couponRate, periods, freq, p);
-        ytm = solvedYTM ?? couponRate;
-      }
-
-      const accrued    = calcAccrued(face, couponRate, freq, daysSince, daysInPer);
-      const cleanPrice = dirtyPrice - accrued;
-      const cfRows     = buildCashFlows(face, couponRate, periods, freq, ytm);
-      const macDur     = cfRows.reduce((s, r) => s + r.durContrib, 0);
-
-      return { ytm, dirtyPrice, cleanPrice, accrued, cfRows, macDur, solvedYTM };
-    }, [face, couponRate, periods, freq, ytmPct, priceInput, daysSince, daysInPer, solveMode])();
-
-  // Sync price input when switching to ytm mode
-  useEffect(() => {
-    if (solveMode === "ytm" && priceInput === "") {
-      setPriceInput(calcPrice(face, couponRate, periods, freq, ytmPct / 100).toFixed(4));
-    }
-  }, [solveMode]);
-
-  const parStatus   = dirtyPrice > face * 1.001 ? "PREMIUM" : dirtyPrice < face * 0.999 ? "DISCOUNT" : "AT PAR";
-  const parColor    = dirtyPrice > face * 1.001 ? GREEN     : dirtyPrice < face * 0.999 ? RED        : AMBER;
-
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ background: BG, minHeight: "100vh", color: TEXT }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=IBM+Plex+Sans:wght@300;400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&display=swap');
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: ${BG}; }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: ${BG}; }
-        ::-webkit-scrollbar-thumb { background: ${MUTED}; }
         input[type=number] { -moz-appearance: textfield; }
-        input[type=number]::-webkit-inner-spin-button,
-        input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; }
-        @keyframes scanline {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(100vh); }
-        }
+        input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; }
+        body { background: ${BG}; }
+        @keyframes up { from { opacity:0; transform:translateY(5px); } to { opacity:1; transform:translateY(0); } }
       `}</style>
 
-      {/* ── HEADER ─────────────────────────────────────────────────────── */}
-      <header style={{
-        position: "sticky", top: 0, zIndex: 50,
-        borderBottom: `1px solid ${BORDER}`,
-        background: `${BG}EE`,
-        backdropFilter: "blur(8px)",
-        padding: "0 28px",
-        height: 50,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ width: 2, height: 18, background: AMBER }} />
-            <span style={{
-              fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 12,
-              fontWeight: 600,
-              color: TEXT,
-              letterSpacing: "0.1em",
-            }}>
-              BOND ANALYTICS
-            </span>
+      {/* HEADER */}
+      <div style={{ borderBottom: `1px solid ${BORDER}`, padding: "0 40px", height: 52, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ width: 2, height: 16, background: A }} />
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: TEXT }}>Bond Analytics</span>
+          <div style={{ width: 1, height: 14, background: BORDER }} />
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.16em", color: MUTED }}>Project 1 · Day 2</span>
+        </div>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.12em", color: MUTED }}>
+          {new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }).toUpperCase()}
+        </span>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", minHeight: "calc(100vh - 52px)" }}>
+
+        {/* SIDEBAR */}
+        <div style={{ borderRight: `1px solid ${BORDER}`, padding: "32px 28px", overflowY: "auto" }}>
+          <ModeToggle value={mode} onChange={m => {
+            setMode(m);
+            if (m === "ytm" && !priceInput) setPriceInput(calcPrice(face, cr, periods, freq, ytmPct / 100).toFixed(4));
+          }} />
+
+          <Field label="Face value ($)"><NumInput value={face} onChange={v => setFace(parseFloat(v) || 0)} step={100} min={100} /></Field>
+          <Field label="Coupon rate (% p.a.)"><NumInput value={couponPct} onChange={v => setCouponPct(parseFloat(v) || 0)} step={0.25} min={0} max={30} /></Field>
+          <Field label="Years to maturity"><NumInput value={periods} onChange={v => setPeriods(parseInt(v) || 1)} step={1} min={1} max={50} /></Field>
+          <Field label="Frequency"><FreqToggle value={freq} onChange={setFreq} /></Field>
+          {mode === "price"
+            ? <Field label="YTM (% p.a.)"><NumInput value={ytmPct} onChange={v => setYtmPct(parseFloat(v) || 0)} step={0.1} min={0.01} /></Field>
+            : <Field label="Market price ($)"><NumInput value={priceInput} onChange={setPriceInput} step={0.01} min={0.01} /></Field>
+          }
+
+          <Divider />
+
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: A, marginBottom: 14 }}>Accrued interest</div>
+          <Field label="Days since last coupon"><NumInput value={daysSince} onChange={v => setDaysSince(parseInt(v) || 0)} step={1} min={0} /></Field>
+          <Field label="Days in coupon period"><NumInput value={daysInPer} onChange={v => setDaysInPer(parseInt(v) || 1)} step={1} min={1} /></Field>
+
+          <Divider />
+
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: A, marginBottom: 14 }}>Position size</div>
+          <Field label="Notional face value ($)"><NumInput value={notional} onChange={v => setNotional(parseFloat(v) || 0)} step={1000000} min={0} /></Field>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: MUTED, marginTop: -14, marginBottom: 20 }}>
+            ${(notional / 1e6).toFixed(0)}M · {(notional / face).toLocaleString()} bonds
           </div>
-          <div style={{ width: 1, height: 16, background: BORDER }} />
-          <span style={{
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 9,
-            color: MUTED,
-            letterSpacing: "0.2em",
-          }}>
-            PROJECT 1 · DAY 1
-          </span>
+
+          <Divider />
+
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: DIM, lineHeight: 2.4 }}>
+            <div>D_mac = Σ t · PV(CFₜ) / P</div>
+            <div>D_mod = D_mac / (1 + y/freq)</div>
+            <div>DV01  = D_mod · P · 0.0001</div>
+            <div>Pos   = DV01 · (N / F)</div>
+          </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 9,
-            color: parColor,
-            border: `1px solid ${parColor}44`,
-            padding: "2px 8px",
-            letterSpacing: "0.15em",
-          }}>
-            {parStatus}
-          </span>
-          <span style={{
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 9,
-            color: MUTED,
-            letterSpacing: "0.1em",
-          }}>
-            {new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }).toUpperCase()}
-          </span>
-        </div>
-      </header>
-
-      {/* ── BODY ───────────────────────────────────────────────────────── */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "280px 1fr",
-        minHeight: "calc(100vh - 50px)",
-      }}>
-
-        {/* ── LEFT PANEL — INPUTS ─────────────────────────────────────── */}
-        <aside style={{
-          borderRight: `1px solid ${BORDER}`,
-          padding: "24px 20px",
-          overflowY: "auto",
-          background: SURFACE,
-        }}>
-          <SectionDivider>Solve Mode</SectionDivider>
-          <SolveToggle mode={solveMode} onChange={m => { setSolveMode(m); }} />
-
-          <SectionDivider>Bond Parameters</SectionDivider>
-
-          <FieldGroup label="Face Value ($)">
-            <NumInput value={face} onChange={v => setFace(parseFloat(v) || 0)} step={100} min={100} />
-          </FieldGroup>
-
-          <FieldGroup label="Annual Coupon Rate (%)">
-            <NumInput value={couponPct} onChange={v => setCouponPct(parseFloat(v) || 0)} step={0.25} min={0} max={30} />
-          </FieldGroup>
-
-          <FieldGroup label="Years to Maturity">
-            <NumInput value={periods} onChange={v => setPeriods(parseInt(v) || 1)} step={1} min={1} max={50} />
-          </FieldGroup>
-
-          <FieldGroup label="Payment Frequency">
-            <ToggleGroup
-              value={freq}
-              onChange={setFreq}
-              options={[{ value: 1, label: "Annual" }, { value: 2, label: "Semi-Annual" }]}
-            />
-          </FieldGroup>
-
-          {solveMode === "price" ? (
-            <FieldGroup label="YTM (%) — solve for price">
-              <NumInput value={ytmPct} onChange={v => setYtmPct(parseFloat(v) || 0)} step={0.1} min={0.01} max={50} />
-            </FieldGroup>
-          ) : (
-            <FieldGroup label="Market Price ($) — solve for YTM">
-              <NumInput
-                value={priceInput}
-                onChange={v => setPriceInput(v)}
-                step={0.01}
-                min={0.01}
-              />
-            </FieldGroup>
-          )}
-
-          <SectionDivider>Accrued Interest</SectionDivider>
-
-          <FieldGroup label="Days Since Last Coupon">
-            <NumInput value={daysSince} onChange={v => setDaysSince(parseInt(v) || 0)} step={1} min={0} />
-          </FieldGroup>
-
-          <FieldGroup label="Days in Coupon Period">
-            <NumInput value={daysInPer} onChange={v => setDaysInPer(parseInt(v) || 1)} step={1} min={1} />
-          </FieldGroup>
-
-          {/* Formula reference */}
-          <div style={{
-            marginTop: 28,
-            padding: "14px",
-            border: `1px solid ${BORDER}`,
-            background: BG,
-          }}>
-            <div style={{
-              fontFamily: "'IBM Plex Mono', monospace",
-              fontSize: 9,
-              letterSpacing: "0.18em",
-              color: MUTED,
-              textTransform: "uppercase",
-              marginBottom: 10,
-            }}>
-              Day 1 Formulas
-            </div>
-            {[
-              ["Price",    "C·[1-(1+y)⁻ᴺ]/y + F·(1+y)⁻ᴺ"],
-              ["Accrued",  "C × (t / T)"],
-              ["Clean",    "Dirty − Accrued"],
-              ["Mac. Dur", "Σ t · PV(CFₜ) / P"],
-            ].map(([k, v]) => (
-              <div key={k} style={{ display: "flex", gap: 8, marginBottom: 6 }}>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: AMBER, minWidth: 56 }}>{k}</span>
-                <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: MUTED, lineHeight: 1.5 }}>{v}</span>
-              </div>
-            ))}
-          </div>
-        </aside>
-
-        {/* ── RIGHT PANEL — OUTPUT ────────────────────────────────────── */}
-        <main style={{ padding: "28px 32px", overflowY: "auto" }}>
-
-          {/* ── SOLVED YTM BANNER (Price → YTM mode) ───────────────── */}
-          {solveMode === "ytm" && solvedYTM !== null && (
-            <div style={{
-              marginBottom: 24,
-              padding: "14px 20px",
-              border: `1px solid ${AMBER}33`,
-              background: `${AMBER}08`,
-              display: "flex",
-              alignItems: "center",
-              gap: 16,
-            }}>
-              <div style={{ width: 2, height: 28, background: AMBER }} />
-              <div>
-                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: DIM, letterSpacing: "0.18em", textTransform: "uppercase", marginBottom: 4 }}>
-                  Solved YTM (Newton-Raphson)
-                </div>
-                <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 24, fontWeight: 600, color: AMBER, letterSpacing: "-0.02em" }}>
-                  {(solvedYTM * 100).toFixed(6)}%
-                </div>
-              </div>
-              <div style={{ marginLeft: "auto", fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, color: MUTED, textAlign: "right", lineHeight: 2 }}>
-                <div>Spread to coupon</div>
-                <div style={{ color: solvedYTM > couponRate ? RED : GREEN }}>
-                  {((solvedYTM - couponRate) * 10000).toFixed(1)} bps
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* ── KPI GRID ────────────────────────────────────────────── */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 12,
-            marginBottom: 24,
-          }}>
-            <KpiCard
-              label="Dirty Price (Full Price)"
-              value={`$${dirtyPrice.toFixed(4)}`}
-              sub="What you actually pay"
-              highlight
-              delay={0}
-            />
-            <KpiCard
-              label="Clean Price (Quoted)"
-              value={`$${cleanPrice.toFixed(4)}`}
-              sub="Bloomberg-quoted price"
-              delay={60}
-            />
-            <KpiCard
-              label="Accrued Interest"
-              value={`$${accrued.toFixed(4)}`}
-              sub={`${daysSince}/${daysInPer} days elapsed`}
-              delay={120}
-            />
-          </div>
-
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 12,
-            marginBottom: 32,
-          }}>
-            <KpiCard
-              label="Macaulay Duration"
-              value={`${macDur.toFixed(4)} yr`}
-              sub="Weighted avg. time to CF"
-              delay={180}
-            />
-            <KpiCard
-              label="YTM"
-              value={solveMode === "ytm" && solvedYTM ? `${(solvedYTM * 100).toFixed(4)}%` : `${ytmPct.toFixed(3)}%`}
-              sub="Annual, per-period adjusted"
-              delay={240}
-            />
-            <KpiCard
-              label="Coupon / Period"
-              value={`$${((couponRate / freq) * face).toFixed(2)}`}
-              sub={`${(couponPct / freq).toFixed(3)}% per period`}
-              delay={300}
-            />
-          </div>
-
-          {/* ── CASH FLOW TABLE ─────────────────────────────────────── */}
-          <div style={{
-            border: `1px solid ${BORDER}`,
-            background: SURFACE,
-          }}>
-            <div style={{
-              padding: "14px 20px",
-              borderBottom: `1px solid ${BORDER}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 4, height: 4, background: AMBER, transform: "rotate(45deg)" }} />
-                <span style={{
-                  fontFamily: "'IBM Plex Mono', monospace",
-                  fontSize: 9,
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  color: AMBER,
-                }}>
-                  Cash Flow Breakdown
-                </span>
-              </div>
-              <span style={{
+        {/* MAIN */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {/* Tabs */}
+          <div style={{ borderBottom: `1px solid ${BORDER}`, display: "flex", paddingLeft: 48 }}>
+            {[{ id: "pricing", l: "Pricing" }, { id: "risk", l: "Risk & Duration" }].map(({ id, l }) => (
+              <button key={id} onClick={() => setActiveTab(id)} style={{
+                padding: "16px 0",
+                marginRight: 32,
+                marginBottom: -1,
+                background: "transparent",
+                border: "none",
+                borderBottom: `1px solid ${activeTab === id ? A : "transparent"}`,
+                color: activeTab === id ? A : MUTED,
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 9,
-                color: MUTED,
-                letterSpacing: "0.1em",
+                fontSize: 10,
+                letterSpacing: "0.16em",
+                textTransform: "uppercase",
+                cursor: "pointer",
+                transition: "all 0.15s",
               }}>
-                {cfRows.length} periods · {freq === 1 ? "annual" : "semi-annual"}
-              </span>
-            </div>
-            <CashFlowTable rows={cfRows} totalDur={macDur} />
-          </div>
-
-          {/* ── FOOTER NOTE ─────────────────────────────────────────── */}
-          <div style={{
-            marginTop: 28,
-            padding: "12px 16px",
-            border: `1px solid ${BORDER}`,
-            display: "flex",
-            gap: 24,
-          }}>
-            {[
-              ["Price < Par",   "Coupon rate < YTM  →  bond trades at discount"],
-              ["Price = Par",   "Coupon rate = YTM  →  bond trades at par"],
-              ["Price > Par",   "Coupon rate > YTM  →  bond trades at premium"],
-            ].map(([k, v]) => (
-              <div key={k} style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, lineHeight: 1.8 }}>
-                <span style={{ color: AMBER }}>{k}  </span>
-                <span style={{ color: MUTED }}>{v}</span>
-              </div>
+                {l}
+              </button>
             ))}
           </div>
 
-          <div style={{
-            marginTop: 16,
-            fontFamily: "'IBM Plex Mono', monospace",
-            fontSize: 9,
-            color: BORDER,
-            letterSpacing: "0.15em",
-            textAlign: "center",
-          }}>
-            FIXED INCOME CAREER ACCELERATOR · PROJECT 1 · BOND PRICING & RISK ANALYTICS
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {activeTab === "pricing"
+              ? <PricingTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} mode={mode} daysSince={daysSince} daysInPer={daysInPer} />
+              : <RiskTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />
+            }
           </div>
-        </main>
+        </div>
       </div>
     </div>
   );
