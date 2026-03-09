@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, Legend } from "recharts";
 
 /* ─── MATH ENGINE ─────────────────────────────────────────────────────────── */
 function calcPrice(face, couponRate, periods, freq, ytm) {
@@ -43,20 +43,67 @@ function modifiedDuration(mac, ytm, freq)   { return mac / (1 + ytm / freq); }
 function dv01PerBond(modDur, price)         { return modDur * price * 0.0001; }
 function positionDv01(dv01, notional, face) { return dv01 * (notional / face); }
 
-function buildScenarios(face, cr, periods, freq, ytm, price, modDur) {
+// Convexity = (1/P) × (1/(1+y)²) × Σ[ t(t+1) × CF / (1+y)ᵗ ]
+function calcConvexity(face, cr, periods, freq, ytm) {
+  const C = (cr / freq) * face;
+  const y = ytm / freq;
+  const N = periods * freq;
+  const P = calcPrice(face, cr, periods, freq, ytm);
+  let sum = 0;
+  for (let t = 1; t <= N; t++) {
+    const cf = t < N ? C : C + face;
+    sum += (t * (t + 1) * cf) / Math.pow(1 + y, t + 2);
+  }
+  return sum / (P * freq * freq);
+}
+
+function buildScenariosWithConvexity(face, cr, periods, freq, ytm, price, modDur, conv) {
   return [-200, -100, -50, -25, 25, 50, 100, 200].map(bp => {
-    const dy     = bp / 10000;
-    const newYTM = Math.max(0.0001, ytm + dy);
-    const exactP = calcPrice(face, cr, periods, freq, newYTM);
-    const approxP= price * (1 - modDur * dy);
-    return { bp, label: `${bp > 0 ? "+" : ""}${bp}`, exact: exactP - price, approx: approxP - price, exactP, newYTM };
+    const dy      = bp / 10000;
+    const newYTM  = Math.max(0.0001, ytm + dy);
+    const exactP  = calcPrice(face, cr, periods, freq, newYTM);
+    const approxP = price * (1 - modDur * dy);
+    const taylorP = price * (1 - modDur * dy + 0.5 * conv * dy * dy);
+    const durTerm  = -modDur * price * dy;
+    const convTerm =  0.5 * conv * price * dy * dy;
+    return {
+      bp, label: `${bp > 0 ? "+" : ""}${bp}`,
+      exact:   exactP - price,
+      approx:  approxP - price,
+      taylor:  taylorP - price,
+      exactP,  newYTM,
+      durTerm, convTerm,
+      taylorTotal: durTerm + convTerm,
+      residual:    (exactP - price) - (durTerm + convTerm),
+    };
   });
 }
 
+function buildPriceYieldCurve(face, cr, periods, freq, ytm, modDur, conv) {
+  const price  = calcPrice(face, cr, periods, freq, ytm);
+  const lo     = Math.max(0.001, ytm - 0.10);
+  const hi     = ytm + 0.10;
+  const points = [];
+  for (let y = lo; y <= hi + 0.0001; y += 0.002) {
+    const dy       = y - ytm;
+    const exact    = calcPrice(face, cr, periods, freq, y);
+    const duration = price * (1 - modDur * dy);
+    const taylor   = price * (1 - modDur * dy + 0.5 * conv * dy * dy);
+    points.push({
+      ytm:      +(y * 100).toFixed(2),
+      exact:    +exact.toFixed(4),
+      duration: +duration.toFixed(4),
+      taylor:   +taylor.toFixed(4),
+    });
+  }
+  return points;
+}
+
 /* ─── TOKENS ──────────────────────────────────────────────────────────────── */
-const A  = "#F0A500";
-const G  = "#4CAF92";
-const R  = "#E05A4E";
+const A      = "#F0A500";
+const G      = "#4CAF92";
+const R      = "#E05A4E";
+const BLUE   = "#5B8DEF";
 const BG     = "#111110";
 const BORDER = "#222220";
 const TEXT   = "#EEECEA";
@@ -245,7 +292,7 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
   const modDur    = modifiedDuration(macDur, ytm, freq);
   const dv01Bond  = dv01PerBond(modDur, price);
   const posDv01   = positionDv01(dv01Bond, notional, face);
-  const scenarios = buildScenarios(face, cr, periods, freq, ytm, price, modDur);
+  const scenarios = buildScenariosWithConvexity(face, cr, periods, freq, ytm, price, modDur, calcConvexity(face, cr, periods, freq, ytm));
 
   const durData = cfRows.map(r => ({
     label: r.tYr.toFixed(1),
@@ -310,7 +357,7 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
         <span style={{ color: DIM }}> · </span>
         <span style={{ color: MUTED }}>Faded</span> = duration approx
         <span style={{ color: DIM }}> · </span>
-        gap = convexity benefit <span style={{ color: DIM }}>(Day 3)</span>
+        gap = convexity benefit <span style={{ color: DIM }}>(see Convexity tab)</span>
       </div>
       <ResponsiveContainer width="100%" height={200}>
         <BarChart data={scenarios} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barGap={3} barSize={16}>
@@ -351,9 +398,156 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
           </tbody>
         </table>
         <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: MUTED, marginTop: 10 }}>
-          Error = exact − duration approx. Always positive for option-free bonds — convexity benefit covered on Day 3.
+          Error = exact − duration approx. Always positive for option-free bonds — see Convexity tab for full breakdown.
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─── CONVEXITY TAB ───────────────────────────────────────────────────────── */
+function ConvexityTab({ face, cr, periods, freq, ytm, notional }) {
+  const price     = calcPrice(face, cr, periods, freq, ytm);
+  const cfRows    = buildCashFlows(face, cr, periods, freq, ytm);
+  const macDur    = macaulayDuration(cfRows);
+  const modDur    = modifiedDuration(macDur, ytm, freq);
+  const conv      = calcConvexity(face, cr, periods, freq, ytm);
+  const scenarios = buildScenariosWithConvexity(face, cr, periods, freq, ytm, price, modDur, conv);
+  const curveData = buildPriceYieldCurve(face, cr, periods, freq, ytm, modDur, conv);
+
+  const CurveTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "10px 14px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+        <div style={{ color: A, marginBottom: 6 }}>YTM: {label}%</div>
+        {payload.map(p => (
+          <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {p.value?.toFixed(4)}</div>
+        ))}
+      </div>
+    );
+  };
+
+  const ThreeWayTooltip = ({ active, payload, label }) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "10px 14px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+        <div style={{ color: A, marginBottom: 6 }}>{label} bps</div>
+        {payload.map(p => (
+          <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {p.value > 0 ? "+" : ""}{p.value?.toFixed(4)}</div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ padding: "36px 48px", overflowY: "auto" }}>
+
+      {/* ── KPI ── */}
+      <div style={{ marginBottom: 36 }}>
+        <Label amber>Convexity</Label>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 40, fontWeight: 300, color: A, letterSpacing: "-0.04em", lineHeight: 1 }}>
+          {conv.toFixed(4)}
+        </div>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginTop: 8 }}>
+          (1/P) × (1/(1+y)²) × Σ[ t(t+1) × CF / (1+y)ᵗ ] · always positive for option-free bonds
+        </div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", marginBottom: 36 }}>
+        {[
+          ["Modified duration",            modDur.toFixed(4)],
+          ["Convexity adj — 100bp",  `$${(0.5 * conv * price * 0.0001).toFixed(4)}`],
+          ["Convexity adj — 200bp",  `$${(0.5 * conv * price * 0.0004).toFixed(4)}`],
+        ].map(([l, v], i) => (
+          <div key={l} style={{ borderLeft: i > 0 ? `1px solid ${BORDER}` : "none", paddingLeft: i > 0 ? 28 : 0, paddingRight: 28 }}>
+            <Label>{l}</Label>
+            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, color: TEXT, letterSpacing: "-0.01em" }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      <Divider />
+
+      {/* ── Price / Yield Curve ── */}
+      <Label>Price / yield curve</Label>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, margin: "8px 0 20px" }}>
+        <span style={{ color: A }}>——</span> Exact price
+        <span style={{ color: DIM }}> · </span>
+        <span style={{ color: MUTED }}>– –</span> Duration only (tangent line)
+        <span style={{ color: DIM }}> · </span>
+        <span style={{ color: BLUE }}>——</span> Duration + convexity
+        <span style={{ color: DIM }}> · </span>
+        current YTM <span style={{ color: TEXT }}>{(ytm * 100).toFixed(2)}%</span>
+      </div>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={curveData} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
+          <XAxis dataKey="ytm" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickFormatter={v => `${v}%`} tickLine={false} axisLine={{ stroke: BORDER }} />
+          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={56} tickFormatter={v => v.toFixed(0)} domain={["auto", "auto"]} />
+          <Tooltip content={<CurveTooltip />} cursor={{ stroke: BORDER }} />
+          <ReferenceLine x={+(ytm * 100).toFixed(2)} stroke={DIM} strokeDasharray="3 3" />
+          <Line type="monotone" dataKey="exact"    stroke={A}    strokeWidth={2}   dot={false} name="Exact" />
+          <Line type="monotone" dataKey="duration" stroke={MUTED} strokeWidth={1.5} dot={false} strokeDasharray="5 4" name="Duration" />
+          <Line type="monotone" dataKey="taylor"   stroke={BLUE} strokeWidth={1.5} dot={false} name="Dur+Conv" />
+        </LineChart>
+      </ResponsiveContainer>
+
+      <Divider />
+
+      {/* ── Taylor Decomposition Table ── */}
+      <Label>Taylor expansion — ΔP decomposition</Label>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, margin: "8px 0 4px" }}>
+        ΔP ≈ <span style={{ color: A }}>−D_mod · P · Δy</span> + <span style={{ color: BLUE }}>½ · C · P · (Δy)²</span>
+      </div>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginBottom: 20 }}>
+        Convexity term is always positive — adds to gains and cushions losses symmetrically.
+      </div>
+      <table style={{ width: "100%", borderCollapse: "collapse" }}>
+        <thead>
+          <tr>
+            {["Shock", "Duration term", "Convexity term", "Taylor total", "Exact ΔP", "Residual"].map((h, i) => (
+              <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {scenarios.map(s => (
+            <tr key={s.bp} onMouseEnter={e => e.currentTarget.style.background = "#FFFFFF04"} onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
+              <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, color: TEXT, borderBottom: `1px solid ${BORDER}` }}>{s.label}</td>
+              <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: A, borderBottom: `1px solid ${BORDER}` }}>{s.durTerm >= 0 ? "+" : ""}{s.durTerm.toFixed(4)}</td>
+              <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: BLUE, borderBottom: `1px solid ${BORDER}` }}>+{s.convTerm.toFixed(4)}</td>
+              <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: TEXT, borderBottom: `1px solid ${BORDER}` }}>{s.taylorTotal >= 0 ? "+" : ""}{s.taylorTotal.toFixed(4)}</td>
+              <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: s.exact >= 0 ? G : R, borderBottom: `1px solid ${BORDER}` }}>{s.exact >= 0 ? "+" : ""}{s.exact.toFixed(4)}</td>
+              <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{s.residual.toFixed(4)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: MUTED, marginTop: 10 }}>
+        Residual = higher-order terms beyond second-order Taylor. Shrinks as Δy → 0.
+      </div>
+
+      <Divider />
+
+      {/* ── Three-way scenario chart ── */}
+      <Label>Scenario comparison — three approximations</Label>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, margin: "8px 0 20px" }}>
+        <span style={{ color: G }}>Exact</span>
+        <span style={{ color: DIM }}> · </span>
+        <span style={{ color: A }}>Duration only</span>
+        <span style={{ color: DIM }}> · </span>
+        <span style={{ color: BLUE }}>Duration + convexity</span>
+      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        <BarChart data={scenarios} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barGap={2} barSize={12}>
+          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
+          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={52} tickFormatter={v => v.toFixed(1)} />
+          <Tooltip content={<ThreeWayTooltip />} cursor={{ fill: "rgba(255,255,255,0.02)" }} />
+          <ReferenceLine y={0} stroke={BORDER} />
+          <Bar dataKey="exact"  name="Exact"      radius={[2,2,0,0]}>{scenarios.map((s,i) => <Cell key={i} fill={s.exact  >= 0 ? G    : R} />)}</Bar>
+          <Bar dataKey="approx" name="Dur. only"  radius={[2,2,0,0]}>{scenarios.map((s,i) => <Cell key={i} fill={s.approx >= 0 ? A    : R + "88"} />)}</Bar>
+          <Bar dataKey="taylor" name="Dur.+Conv"  radius={[2,2,0,0]}>{scenarios.map((s,i) => <Cell key={i} fill={s.taylor >= 0 ? BLUE : R + "66"} />)}</Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -394,7 +588,7 @@ export default function App() {
           <div style={{ width: 2, height: 16, background: A }} />
           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: TEXT }}>Bond Analytics</span>
           <div style={{ width: 1, height: 14, background: BORDER }} />
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.16em", color: MUTED }}>Project 1 · Day 2</span>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.16em", color: MUTED }}>Project 1 · Day 3</span>
         </div>
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.12em", color: MUTED }}>
           {new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }).toUpperCase()}
@@ -439,7 +633,8 @@ export default function App() {
             <div>D_mac = Σ t · PV(CFₜ) / P</div>
             <div>D_mod = D_mac / (1 + y/freq)</div>
             <div>DV01  = D_mod · P · 0.0001</div>
-            <div>Pos   = DV01 · (N / F)</div>
+            <div>Conv  = (1/P) · d²P/dy²</div>
+            <div>ΔP ≈ −D·P·Δy + ½·C·P·(Δy)²</div>
           </div>
         </div>
 
@@ -447,7 +642,7 @@ export default function App() {
         <div style={{ display: "flex", flexDirection: "column" }}>
           {/* Tabs */}
           <div style={{ borderBottom: `1px solid ${BORDER}`, display: "flex", paddingLeft: 48 }}>
-            {[{ id: "pricing", l: "Pricing" }, { id: "risk", l: "Risk & Duration" }].map(({ id, l }) => (
+            {[{ id: "pricing", l: "Pricing" }, { id: "risk", l: "Risk & Duration" }, { id: "convexity", l: "Convexity" }].map(({ id, l }) => (
               <button key={id} onClick={() => setActiveTab(id)} style={{
                 padding: "16px 0",
                 marginRight: 32,
@@ -469,10 +664,9 @@ export default function App() {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {activeTab === "pricing"
-              ? <PricingTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} mode={mode} daysSince={daysSince} daysInPer={daysInPer} />
-              : <RiskTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />
-            }
+            {activeTab === "pricing"   && <PricingTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} mode={mode} daysSince={daysSince} daysInPer={daysInPer} />}
+            {activeTab === "risk"      && <RiskTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />}
+            {activeTab === "convexity" && <ConvexityTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />}
           </div>
         </div>
       </div>
