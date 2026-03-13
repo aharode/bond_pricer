@@ -359,19 +359,42 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
         <span style={{ color: DIM }}> · </span>
         gap = convexity benefit <span style={{ color: DIM }}>(see Convexity tab)</span>
       </div>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={scenarios} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barGap={3} barSize={16}>
-          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
-          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={52} tickFormatter={v => v.toFixed(1)} />
-          <Tooltip content={<ScenarioTooltip />} cursor={{ fill: "rgba(240,165,0,0.03)" }} />
+      <ResponsiveContainer width="100%" height={220}>
+        <LineChart data={scenarios} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+          <XAxis
+            dataKey="label"
+            stroke={BORDER}
+            tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }}
+            tickLine={false}
+            axisLine={{ stroke: BORDER }}
+          />
+          <YAxis
+            stroke={BORDER}
+            tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }}
+            tickLine={false}
+            axisLine={false}
+            width={52}
+            tickFormatter={v => v.toFixed(1)}
+          />
+          <Tooltip content={<ScenarioTooltip />} cursor={{ stroke: BORDER }} />
           <ReferenceLine y={0} stroke={BORDER} />
-          <Bar dataKey="exact" radius={[2, 2, 0, 0]}>
-            {scenarios.map((s, i) => <Cell key={i} fill={s.exact >= 0 ? A : R} />)}
-          </Bar>
-          <Bar dataKey="approx" radius={[2, 2, 0, 0]}>
-            {scenarios.map((s, i) => <Cell key={i} fill={s.approx >= 0 ? A + "33" : R + "33"} />)}
-          </Bar>
-        </BarChart>
+          <Line
+            type="monotone"
+            dataKey="exact"
+            stroke={A}
+            strokeWidth={2}
+            dot={{ r: 3 }}
+            name="Exact"
+          />
+          <Line
+            type="monotone"
+            dataKey="approx"
+            stroke={A + "55"}
+            strokeWidth={1.5}
+            dot={{ r: 2 }}
+            name="Duration approx"
+          />
+        </LineChart>
       </ResponsiveContainer>
 
       {/* Scenario table */}
