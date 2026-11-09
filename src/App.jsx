@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine, Legend } from "recharts";
 
 /* ─── MATH ENGINE ─────────────────────────────────────────────────────────── */
@@ -212,6 +212,30 @@ const ScenarioTooltip = ({ active, payload, label }) => {
       <div style={{ color: A, marginBottom: 4 }}>{label} bps</div>
       <div style={{ color: TEXT }}>Exact: {payload[0]?.value > 0 ? "+" : ""}{payload[0]?.value?.toFixed(4)}</div>
       <div style={{ color: MUTED }}>Approx: {payload[1]?.value > 0 ? "+" : ""}{payload[1]?.value?.toFixed(4)}</div>
+    </div>
+  );
+};
+
+const CurveTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "10px 14px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+      <div style={{ color: A, marginBottom: 6 }}>YTM: {label}%</div>
+      {payload.map(p => (
+        <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {p.value?.toFixed(4)}</div>
+      ))}
+    </div>
+  );
+};
+
+const ThreeWayTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "10px 14px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
+      <div style={{ color: A, marginBottom: 6 }}>{label} bps</div>
+      {payload.map(p => (
+        <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {p.value > 0 ? "+" : ""}{p.value?.toFixed(4)}</div>
+      ))}
     </div>
   );
 };
@@ -446,7 +470,7 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
 }
 
 /* ─── CONVEXITY TAB ───────────────────────────────────────────────────────── */
-function ConvexityTab({ face, cr, periods, freq, ytm, notional }) {
+function ConvexityTab({ face, cr, periods, freq, ytm }) {
   const price     = calcPrice(face, cr, periods, freq, ytm);
   const cfRows    = buildCashFlows(face, cr, periods, freq, ytm);
   const macDur    = macaulayDuration(cfRows);
@@ -454,30 +478,6 @@ function ConvexityTab({ face, cr, periods, freq, ytm, notional }) {
   const conv      = calcConvexity(face, cr, periods, freq, ytm);
   const scenarios = buildScenariosWithConvexity(face, cr, periods, freq, ytm, price, modDur, conv);
   const curveData = buildPriceYieldCurve(face, cr, periods, freq, ytm, modDur, conv);
-
-  const CurveTooltip = ({ active, payload, label }) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "10px 14px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
-        <div style={{ color: A, marginBottom: 6 }}>YTM: {label}%</div>
-        {payload.map(p => (
-          <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {p.value?.toFixed(4)}</div>
-        ))}
-      </div>
-    );
-  };
-
-  const ThreeWayTooltip = ({ active, payload, label }) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div style={{ background: "#1A1A18", border: `1px solid ${BORDER}`, padding: "10px 14px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>
-        <div style={{ color: A, marginBottom: 6 }}>{label} bps</div>
-        {payload.map(p => (
-          <div key={p.dataKey} style={{ color: p.color, marginBottom: 2 }}>{p.name}: {p.value > 0 ? "+" : ""}{p.value?.toFixed(4)}</div>
-        ))}
-      </div>
-    );
-  };
 
   return (
     <div style={{ padding: "36px 48px", overflowY: "auto" }}>
@@ -709,7 +709,7 @@ export default function App() {
           <div style={{ flex: 1, overflowY: "auto" }}>
             {activeTab === "pricing"   && <PricingTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} mode={mode} daysSince={daysSince} daysInPer={daysInPer} />}
             {activeTab === "risk"      && <RiskTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />}
-            {activeTab === "convexity" && <ConvexityTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />}
+            {activeTab === "convexity" && <ConvexityTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} />}
           </div>
         </div>
       </div>
