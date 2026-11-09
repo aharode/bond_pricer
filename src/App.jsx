@@ -53,6 +53,7 @@ function buildCashFlows(face, couponRate, periods, freq, ytm) {
 
 function macaulayDuration(cfRows)           { return cfRows.reduce((s, r) => s + r.durContrib, 0); }
 function modifiedDuration(mac, ytm, freq)   { return mac / (1 + ytm / freq); }
+function dollarDuration(modDur, price)      { return modDur * price; }
 function dv01PerBond(modDur, price)         { return modDur * price * 0.0001; }
 function positionDv01(dv01, notional, face) { return dv01 * (notional / face); }
 
@@ -331,6 +332,7 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
   const cfRows    = buildCashFlows(face, cr, periods, freq, ytm);
   const macDur    = macaulayDuration(cfRows);
   const modDur    = modifiedDuration(macDur, ytm, freq);
+  const dolDur    = dollarDuration(modDur, price);
   const dv01Bond  = dv01PerBond(modDur, price);
   const posDv01   = positionDv01(dv01Bond, notional, face);
   const scenarios = buildScenariosWithConvexity(face, cr, periods, freq, ytm, price, modDur, calcConvexity(face, cr, periods, freq, ytm));
@@ -355,10 +357,11 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
         </div>
       </div>
 
-      {/* Secondary trio */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", marginBottom: 36 }}>
+      {/* Secondary metrics */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", marginBottom: 36 }}>
         {[
           ["Macaulay duration", `${macDur.toFixed(4)} yr`],
+          ["Dollar duration",   `$${dolDur.toFixed(2)}`],
           ["DV01 — per bond",   `$${dv01Bond.toFixed(4)}`],
           [`DV01 — $${(notional/1e6).toFixed(0)}M position`, `$${posDv01.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`],
         ].map(([l, v], i) => (
@@ -675,7 +678,8 @@ export default function App() {
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, lineHeight: 2.2 }}>
             <div>D_mac = Σ t · PV(CFₜ) / P</div>
             <div>D_mod = D_mac / (1 + y/freq)</div>
-            <div>DV01  = D_mod · P · 0.0001</div>
+            <div>$Dur  = D_mod · P</div>
+            <div>DV01  = $Dur · 0.0001</div>
             <div>Conv  = (1/P) · d²P/dy²</div>
             <div>ΔP ≈ −D·P·Δy + ½·C·P·(Δy)²</div>
           </div>
