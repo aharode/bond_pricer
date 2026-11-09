@@ -73,7 +73,7 @@ function calcConvexity(face, cr, periods, freq, ytm) {
 function buildScenariosWithConvexity(face, cr, periods, freq, ytm, price, modDur, conv) {
   return [-200, -100, -50, -25, 25, 50, 100, 200].map(bp => {
     const dy      = bp / 10000;
-    const newYTM  = Math.max(0.0001, ytm + dy);
+    const newYTM  = ytm + dy;  // negative yields are priced normally
     const exactP  = calcPrice(face, cr, periods, freq, newYTM);
     const approxP = price * (1 - modDur * dy);
     const taylorP = price * (1 - modDur * dy + 0.5 * conv * dy * dy);
@@ -94,7 +94,7 @@ function buildScenariosWithConvexity(face, cr, periods, freq, ytm, price, modDur
 
 function buildPriceYieldCurve(face, cr, periods, freq, ytm, modDur, conv) {
   const price  = calcPrice(face, cr, periods, freq, ytm);
-  const lo     = Math.max(0.001, ytm - 0.10);
+  const lo     = ytm - 0.10;  // symmetric ±10% around the current YTM
   const hi     = ytm + 0.10;
   const points = [];
   for (let y = lo; y <= hi + 0.0001; y += 0.002) {

@@ -151,7 +151,7 @@ def taylor_price_change(bond: Bond, ytm: float, dy: float) -> dict:
     dur        = duration_term(bond, ytm, dy)
     conv       = convexity_term(bond, ytm, dy)
     taylor     = dur + conv
-    new_ytm    = max(0.0001, ytm + dy)
+    new_ytm    = ytm + dy   # negative yields are priced normally
     new_price  = bond.price(new_ytm)
     exact      = new_price - p
 
