@@ -37,16 +37,23 @@ class Bond:
 
     # ── Pricing ───────────────────────────────────────────────────────────────
 
-    def price(self, ytm: float) -> float:
+    def price(self, ytm: float, accrued_fraction: float = 0.0) -> float:
         """
-        Full (dirty) price — PV of all cash flows discounted at YTM.
+        Full (dirty) price — PV of all remaining cash flows discounted at YTM.
 
-        ytm : annual YTM as decimal (e.g. 0.06 for 6%)
+        ytm              : annual YTM as decimal (e.g. 0.06 for 6%)
+        accrued_fraction : share of the current coupon period that has elapsed
+                           since the last coupon (0 on a coupon date). Cash flow
+                           t is discounted over (t - accrued_fraction) periods,
+                           the standard street convention, so the dirty price
+                           rises between coupon dates as interest accrues.
         """
+        if not 0.0 <= accrued_fraction < 1.0:
+            raise ValueError("accrued_fraction must be in [0, 1)")
         y = ytm / self.freq          # per-period yield
         total = 0.0
         for t, cf in self.cash_flows():
-            total += cf / (1 + y) ** t
+            total += cf / (1 + y) ** (t - accrued_fraction)
         return total
 
     def price_closed_form(self, ytm: float) -> float:
@@ -74,32 +81,47 @@ class Bond:
         coupon = (self.coupon_rate / self.freq) * self.face
         return coupon * (days_since_coupon / days_in_period)
 
+    def dirty_price(self, ytm: float, days_since_coupon: int, days_in_period: int) -> float:
+        """Dirty (full) price on a date between coupons."""
+        return self.price(ytm, days_since_coupon / days_in_period)
+
     def clean_price(self, ytm: float, days_since_coupon: int, days_in_period: int) -> float:
-        """Clean price = Dirty price - Accrued interest."""
-        dirty = self.price(ytm)
+        """
+        Clean (quoted) price = Dirty price - Accrued interest.
+
+        The dirty price includes the coupon interest earned since the last
+        payment; the clean price removes it, so the clean price does not jump
+        when a coupon is paid.
+        """
+        dirty = self.dirty_price(ytm, days_since_coupon, days_in_period)
         accrued = self.accrued_interest(days_since_coupon, days_in_period)
         return dirty - accrued
 
     # ── YTM solver ────────────────────────────────────────────────────────────
 
-    def ytm(self, price: float, tol: float = 1e-10, max_iter: int = 500) -> float:
+    def ytm(self, price: float, accrued_fraction: float = 0.0,
+            tol: float = 1e-10, max_iter: int = 500) -> float:
         """
-        Solve for YTM given a market price (Newton-Raphson).
+        Solve for YTM given a dirty price (Newton-Raphson).
         Returns annual YTM as a decimal.
         """
-        # Initial guess: coupon rate
-        y = self.coupon_rate
+        y = self.coupon_rate  # initial guess
 
         for _ in range(max_iter):
-            p = self.price(y)
+            p = self.price(y, accrued_fraction)
             # Numerical derivative dp/dy
-            dp = (self.price(y + 1e-6) - self.price(y - 1e-6)) / 2e-6
+            dp = (self.price(y + 1e-6, accrued_fraction) - self.price(y - 1e-6, accrued_fraction)) / 2e-6
             delta = (p - price) / dp
             y -= delta
             if abs(delta) < tol:
                 break
 
         return y
+
+    def ytm_from_clean(self, clean_price: float, days_since_coupon: int, days_in_period: int) -> float:
+        """Solve for YTM given a quoted (clean) price between coupon dates."""
+        dirty = clean_price + self.accrued_interest(days_since_coupon, days_in_period)
+        return self.ytm(dirty, days_since_coupon / days_in_period)
 
     # ── Display ───────────────────────────────────────────────────────────────
 

@@ -5,6 +5,11 @@ Run this to verify your hand calculations from the study guide.
 Study guide bond: 5% annual coupon, face $1,000, 5 years, YTM = 6%
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from src.bond import Bond
 from src.risk import (
     macaulay_duration,

@@ -3,6 +3,11 @@ Day 1 — Practice Problems
 Run this to verify your hand calculations from the study guide.
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from src.bond import Bond
 
 

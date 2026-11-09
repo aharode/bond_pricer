@@ -44,14 +44,12 @@ def convexity(bond: Bond, ytm: float) -> float:
     float — convexity in years² (dimensionless after scaling)
     """
     y = ytm / bond.freq
-    N = bond.periods * bond.freq
     P = bond.price(ytm)
 
-    C = (bond.coupon_rate / bond.freq) * bond.face
-
+    # bond.periods already counts coupon periods, so iterate over the actual
+    # cash flows (t in periods) and convert to annual units with 1/freq².
     total = 0.0
-    for t in range(1, N + 1):
-        cf = C if t < N else C + bond.face
+    for t, cf in bond.cash_flows():
         total += (t * (t + 1) * cf) / (1 + y) ** (t + 2)
 
     return total / (P * bond.freq ** 2)
@@ -97,10 +95,8 @@ def duration_term(bond: Bond, ytm: float, dy: float) -> float:
     -------
     float — dollar price change from duration term
     """
-    cfRows = _cash_flows_with_pv(bond, ytm)
-    mac    = macaulay_duration(bond, ytm)
-    mod    = modified_duration(bond, ytm)
-    p      = bond.price(ytm)
+    mod = modified_duration(bond, ytm)
+    p   = bond.price(ytm)
     return -mod * p * dy
 
 

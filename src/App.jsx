@@ -10,12 +10,25 @@ function calcPrice(face, couponRate, periods, freq, ytm) {
   return C * (1 - Math.pow(1 + y, -N)) / y + face / Math.pow(1 + y, N);
 }
 
-function solveYTM(face, couponRate, periods, freq, price) {
+// Dirty price between coupon dates: each cash flow is discounted over
+// (t - f) periods, where f is the share of the coupon period already elapsed.
+// Equivalent to the coupon-date price grown at the per-period yield for f.
+function dirtyPrice(face, couponRate, periods, freq, ytm, f) {
+  return calcPrice(face, couponRate, periods, freq, ytm) * Math.pow(1 + ytm / freq, f);
+}
+
+// Accrued fraction of the current coupon period, kept inside [0, 1)
+function accruedFraction(daysSince, daysInPer) {
+  return Math.min(Math.max(daysSince / daysInPer, 0), 0.9999);
+}
+
+// Solve for the YTM that reproduces a dirty price at accrued fraction f
+function solveYTM(face, couponRate, periods, freq, price, f = 0) {
   let y = couponRate;
   for (let i = 0; i < 500; i++) {
-    const p  = calcPrice(face, couponRate, periods, freq, y);
-    const dp = (calcPrice(face, couponRate, periods, freq, y + 1e-6) -
-                calcPrice(face, couponRate, periods, freq, y - 1e-6)) / 2e-6;
+    const p  = dirtyPrice(face, couponRate, periods, freq, y, f);
+    const dp = (dirtyPrice(face, couponRate, periods, freq, y + 1e-6, f) -
+                dirtyPrice(face, couponRate, periods, freq, y - 1e-6, f)) / 2e-6;
     if (Math.abs(dp) < 1e-14) break;
     const delta = (p - price) / dp;
     y -= delta;
@@ -203,16 +216,18 @@ const ScenarioTooltip = ({ active, payload, label }) => {
 
 /* ─── PRICING TAB ─────────────────────────────────────────────────────────── */
 function PricingTab({ face, cr, periods, freq, ytm, mode, daysSince, daysInPer }) {
-  const dirty   = calcPrice(face, cr, periods, freq, ytm);
-  const accrued = (cr / freq) * face * (daysSince / daysInPer);
+  const f       = accruedFraction(daysSince, daysInPer);
+  const dirty   = dirtyPrice(face, cr, periods, freq, ytm, f);
+  const accrued = (cr / freq) * face * f;
   const clean   = dirty - accrued;
   const cfRows  = buildCashFlows(face, cr, periods, freq, ytm);
   const macDur  = macaulayDuration(cfRows);
   const maxPV   = Math.max(...cfRows.map(r => r.pv));
 
-  const parLabel = dirty > face * 1.001 ? "premium" : dirty < face * 0.999 ? "discount" : "par";
-  const parColor = dirty > face * 1.001 ? G : dirty < face * 0.999 ? R : TEXT;
-  const parDiff  = ((dirty / face - 1) * 100).toFixed(3);
+  // Premium / discount is judged on the clean (quoted) price
+  const parLabel = clean > face * 1.001 ? "premium" : clean < face * 0.999 ? "discount" : "par";
+  const parColor = clean > face * 1.001 ? G : clean < face * 0.999 ? R : TEXT;
+  const parDiff  = ((clean / face - 1) * 100).toFixed(3);
 
   return (
     <div style={{ padding: "36px 48px", overflowY: "auto" }}>
@@ -239,7 +254,7 @@ function PricingTab({ face, cr, periods, freq, ytm, mode, daysSince, daysInPer }
       <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginBottom: 36, marginTop: 12 }}>
         Trading at <span style={{ color: parColor }}>{parLabel}</span>
         <span style={{ color: DIM }}> · </span>
-        {parDiff}% {dirty >= face ? "above" : "below"} par
+        {parDiff}% {clean >= face ? "above" : "below"} par
       </div>
 
       <Divider />
@@ -590,9 +605,12 @@ export default function App() {
   const [activeTab,  setActiveTab]  = useState("pricing");
 
   const cr  = couponPct / 100;
+  const f   = accruedFraction(daysSince, daysInPer);
+  const accruedAmt = (cr / freq) * face * f;
+  // Price → YTM takes the quoted (clean) price; add accrued to get the dirty price
   const ytm = mode === "price"
     ? ytmPct / 100
-    : (() => { const p = parseFloat(priceInput); return isNaN(p) || p <= 0 ? cr : solveYTM(face, cr, periods, freq, p); })();
+    : (() => { const p = parseFloat(priceInput); return isNaN(p) || p <= 0 ? cr : solveYTM(face, cr, periods, freq, p + accruedAmt, f); })();
 
   return (
     <div style={{ background: BG, minHeight: "100vh", color: TEXT }}>
@@ -624,7 +642,7 @@ export default function App() {
         <div style={{ borderRight: `1px solid ${BORDER}`, padding: "32px 28px", overflowY: "auto" }}>
           <ModeToggle value={mode} onChange={m => {
             setMode(m);
-            if (m === "ytm" && !priceInput) setPriceInput(calcPrice(face, cr, periods, freq, ytmPct / 100).toFixed(4));
+            if (m === "ytm" && !priceInput) setPriceInput((dirtyPrice(face, cr, periods, freq, ytmPct / 100, f) - accruedAmt).toFixed(4));
           }} />
 
           <Field label="Face value ($)"><NumInput value={face} onChange={v => setFace(parseFloat(v) || 0)} step={100} min={100} /></Field>
@@ -633,7 +651,7 @@ export default function App() {
           <Field label="Frequency"><FreqToggle value={freq} onChange={setFreq} /></Field>
           {mode === "price"
             ? <Field label="YTM (% p.a.)"><NumInput value={ytmPct} onChange={v => setYtmPct(parseFloat(v) || 0)} step={0.1} min={0.01} /></Field>
-            : <Field label="Market price ($)"><NumInput value={priceInput} onChange={setPriceInput} step={0.01} min={0.01} /></Field>
+            : <Field label="Clean price ($)"><NumInput value={priceInput} onChange={setPriceInput} step={0.01} min={0.01} /></Field>
           }
 
           <Divider />
