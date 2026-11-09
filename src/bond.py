@@ -1,6 +1,5 @@
 """
-Bond Pricing & Risk Analytics Tool
-Day 1: Core bond pricing — PV of cash flows, YTM, clean/dirty price
+Bond Analytics — core bond pricing: PV of cash flows, YTM, clean/dirty price
 
 Formula:
     P = C * [1 - (1+y)^(-N)] / y  +  F * (1+y)^(-N)

@@ -1,6 +1,6 @@
 """
-Day 1 — Practice Problems
-Run this to verify your hand calculations from the study guide.
+Pricing examples: PV of cash flows, closed form, YTM, accrued interest and clean/dirty price.
+Run from the repository root: python examples/pricing.py
 """
 
 import sys

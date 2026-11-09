@@ -1,8 +1,8 @@
 """
-Day 3 — Practice Problems
-Run this to verify your hand calculations from the study guide.
+Convexity examples: convexity, Taylor decomposition of price changes, scenario analysis.
+Run from the repository root: python examples/convexity_taylor.py
 
-Study guide bond: 5% annual coupon, face $1,000, 5 years, YTM = 6%
+Example bond: 5% annual coupon, face $1,000, 5 years, YTM = 6%
 """
 
 import sys

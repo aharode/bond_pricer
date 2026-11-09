@@ -1,8 +1,8 @@
 """
-Day 2 — Practice Problems
-Run this to verify your hand calculations from the study guide.
+Duration and DV01 examples: Macaulay/modified duration, DV01, position DV01.
+Run from the repository root: python examples/duration_dv01.py
 
-Study guide bond: 5% annual coupon, face $1,000, 5 years, YTM = 6%
+Example bond: 5% annual coupon, face $1,000, 5 years, YTM = 6%
 """
 
 import sys
@@ -28,7 +28,7 @@ def separator(title):
     print('─' * 55)
 
 
-# ── Base bond (carried over from Day 1) ───────────────────────────────────────
+# ── Base bond ────────────────────────────────────────────────────────────────
 bond = Bond(face=1000, coupon_rate=0.05, periods=5, freq=1)
 ytm  = 0.06
 
@@ -74,7 +74,7 @@ new_price_exact  = bond.price(ytm + dy)
 print(f"\n  YTM shift: +50 bps")
 print(f"  ΔP (duration approx) : {approx_delta:+.4f}  → price = {new_price_approx:.4f}")
 print(f"  ΔP (exact reprice)   : {new_price_exact - price:+.4f}  → price = {new_price_exact:.4f}")
-print(f"  Approximation error  : {(new_price_exact - new_price_approx):.4f}  (convexity — Day 3)")
+print(f"  Approximation error  : {(new_price_exact - new_price_approx):.4f}  (the convexity term, see convexity_taylor.py)")
 
 
 # ── Problem 3 ─────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ print(f"       → more weight concentrated at final principal payment")
 
 
 # ── Full summary (risk_summary helper) ───────────────────────────────────────
-separator("Bonus — risk_summary() for the Day 1 bond")
+separator("Bonus — risk_summary() for the example bond")
 
 summary = risk_summary(bond, ytm, notional=10_000_000)
 print()

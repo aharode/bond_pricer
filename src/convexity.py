@@ -1,6 +1,5 @@
 """
-Bond Pricing & Risk Analytics Tool
-Day 3: Convexity & Taylor Expansion
+Bond Analytics — convexity and Taylor expansion
 
 Formulas:
     Convexity = (1/P) × (1/(1+y)²) × Σ[ t(t+1) × CF / (1+y)ᵗ ]

@@ -629,7 +629,7 @@ export default function App() {
           <div style={{ width: 2, height: 16, background: A }} />
           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: TEXT }}>Bond Analytics</span>
           <div style={{ width: 1, height: 14, background: BORDER }} />
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.16em", color: MUTED }}>Project 1 · Day 3</span>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.16em", color: MUTED }}>Pricing · Duration · Convexity</span>
         </div>
         <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.12em", color: MUTED }}>
           {new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }).toUpperCase()}

@@ -1,6 +1,5 @@
 """
-Bond Pricing & Risk Analytics Tool
-Day 2: Duration & DV01
+Bond Analytics — duration and DV01
 
 Formulas:
     D_mac = Σ [ t × PV(CFₜ) ] / P
