@@ -120,16 +120,18 @@ const BLUE   = "#5B8DEF";
 const BG     = "#111110";
 const BORDER = "#222220";
 const TEXT   = "#EEECEA";
-const MUTED  = "#666460";
-const DIM    = "#3A3A38";
-const FAINT  = "#2A2A28";
+// Text colours meet WCAG AA contrast (>= 4.5:1) on BG and the tooltip
+// background (#1A1A18). DIM is for separators, bars and guide lines only
+// (>= 3:1, the WCAG minimum for non-text graphics), never for text.
+const MUTED  = "#8F8C86";
+const DIM    = "#6A6864";
 
 /* ─── PRIMITIVES ──────────────────────────────────────────────────────────── */
 function Label({ children, amber }) {
   return (
     <div style={{
       fontFamily: "'IBM Plex Mono', monospace",
-      fontSize: 10,
+      fontSize: 11,
       letterSpacing: "0.14em",
       textTransform: "uppercase",
       color: amber ? A : MUTED,
@@ -171,7 +173,7 @@ function ModeToggle({ value, onChange }) {
   return (
     <div style={{ display: "inline-flex", border: `1px solid ${BORDER}`, marginBottom: 32 }}>
       {[{ id: "price", l: "YTM → Price" }, { id: "ytm", l: "Price → YTM" }].map(({ id, l }) => (
-        <button key={id} onClick={() => onChange(id)} style={{ padding: "8px 18px", background: value === id ? A : "transparent", color: value === id ? BG : MUTED, border: "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.15s", fontWeight: value === id ? 600 : 400 }}>
+        <button key={id} onClick={() => onChange(id)} style={{ padding: "8px 18px", background: value === id ? A : "transparent", color: value === id ? BG : MUTED, border: "none", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", cursor: "pointer", transition: "all 0.15s", fontWeight: value === id ? 600 : 400 }}>
           {l}
         </button>
       ))}
@@ -266,7 +268,7 @@ function PricingTab({ face, cr, periods, freq, ytm, mode, daysSince, daysInPer }
         <thead>
           <tr>
             {["Period", "Time", "Cash flow", "PV", "Weight", "Dur. contrib"].map((h, i) => (
-              <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
+              <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -290,7 +292,7 @@ function PricingTab({ face, cr, periods, freq, ytm, mode, daysSince, daysInPer }
             );
           })}
           <tr>
-            <td colSpan={5} style={{ padding: "12px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED }}>Macaulay duration</td>
+            <td colSpan={5} style={{ padding: "12px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED }}>Macaulay duration</td>
             <td style={{ padding: "12px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: A, fontWeight: 500 }}>{macDur.toFixed(4)} yr</td>
           </tr>
         </tbody>
@@ -354,8 +356,8 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
       </div>
       <ResponsiveContainer width="100%" height={160}>
         <BarChart data={durData} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barSize={periods <= 5 ? 28 : 14}>
-          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
-          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={40} />
+          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
+          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={40} />
           <Tooltip content={<DurTooltip />} cursor={{ fill: "rgba(240,165,0,0.03)" }} />
           <Bar dataKey="contrib" radius={[2, 2, 0, 0]}>
             {durData.map((d, i) => <Cell key={i} fill={d.isFinal ? A : DIM} />)}
@@ -372,20 +374,20 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
         <span style={{ color: DIM }}> · </span>
         <span style={{ color: MUTED }}>Faded</span> = duration approx
         <span style={{ color: DIM }}> · </span>
-        gap = convexity benefit <span style={{ color: DIM }}>(see Convexity tab)</span>
+        gap = convexity benefit <span style={{ color: MUTED }}>(see Convexity tab)</span>
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <LineChart data={scenarios} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
           <XAxis
             dataKey="label"
             stroke={BORDER}
-            tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }}
+            tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}
             tickLine={false}
             axisLine={{ stroke: BORDER }}
           />
           <YAxis
             stroke={BORDER}
-            tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }}
+            tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }}
             tickLine={false}
             axisLine={false}
             width={52}
@@ -404,7 +406,7 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
           <Line
             type="monotone"
             dataKey="approx"
-            stroke={A + "55"}
+            stroke={A + "99"}
             strokeWidth={1.5}
             dot={{ r: 2 }}
             name="Duration approx"
@@ -418,7 +420,7 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
           <thead>
             <tr>
               {["Shock", "New YTM", "New price", "Δ Price", "Δ Price (approx)", "Error"].map((h, i) => (
-                <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
+                <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -430,12 +432,12 @@ function RiskTab({ face, cr, periods, freq, ytm, notional }) {
                 <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: TEXT, borderBottom: `1px solid ${BORDER}` }}>{s.exactP.toFixed(4)}</td>
                 <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: s.exact >= 0 ? A : R, borderBottom: `1px solid ${BORDER}` }}>{s.exact >= 0 ? "+" : ""}{s.exact.toFixed(4)}</td>
                 <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{s.approx >= 0 ? "+" : ""}{s.approx.toFixed(4)}</td>
-                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: DIM, borderBottom: `1px solid ${BORDER}` }}>{(s.exact - s.approx).toFixed(4)}</td>
+                <td style={{ padding: "8px 0", fontFamily: "'IBM Plex Mono', monospace", fontSize: 12, textAlign: "right", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{(s.exact - s.approx).toFixed(4)}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: MUTED, marginTop: 10 }}>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginTop: 10 }}>
           Error = exact − duration approx. Always positive for option-free bonds — see Convexity tab for full breakdown.
         </div>
       </div>
@@ -519,8 +521,8 @@ function ConvexityTab({ face, cr, periods, freq, ytm, notional }) {
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <LineChart data={curveData} margin={{ top: 4, right: 8, bottom: 4, left: 8 }}>
-          <XAxis dataKey="ytm" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickFormatter={v => `${v}%`} tickLine={false} axisLine={{ stroke: BORDER }} />
-          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={56} tickFormatter={v => v.toFixed(0)} domain={["auto", "auto"]} />
+          <XAxis dataKey="ytm" stroke={BORDER} minTickGap={24} tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }} tickFormatter={v => `${v}%`} tickLine={false} axisLine={{ stroke: BORDER }} />
+          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={56} tickFormatter={v => v.toFixed(0)} domain={["auto", "auto"]} />
           <Tooltip content={<CurveTooltip />} cursor={{ stroke: BORDER }} />
           <ReferenceLine x={+(ytm * 100).toFixed(2)} stroke={DIM} strokeDasharray="3 3" />
           <Line type="monotone" dataKey="exact"    stroke={A}    strokeWidth={2}   dot={false} name="Exact" />
@@ -543,7 +545,7 @@ function ConvexityTab({ face, cr, periods, freq, ytm, notional }) {
         <thead>
           <tr>
             {["Shock", "Duration term", "Convexity term", "Taylor total", "Exact ΔP", "Residual"].map((h, i) => (
-              <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 10, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
+              <th key={h} style={{ padding: "0 0 10px", textAlign: i === 0 ? "left" : "right", fontFamily: "'IBM Plex Mono', monospace", fontWeight: 400, fontSize: 11, letterSpacing: "0.12em", textTransform: "uppercase", color: MUTED, borderBottom: `1px solid ${BORDER}` }}>{h}</th>
             ))}
           </tr>
         </thead>
@@ -560,7 +562,7 @@ function ConvexityTab({ face, cr, periods, freq, ytm, notional }) {
           ))}
         </tbody>
       </table>
-      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: MUTED, marginTop: 10 }}>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginTop: 10 }}>
         Residual = higher-order terms beyond second-order Taylor. Shrinks as Δy → 0.
       </div>
 
@@ -577,8 +579,8 @@ function ConvexityTab({ face, cr, periods, freq, ytm, notional }) {
       </div>
       <ResponsiveContainer width="100%" height={220}>
         <BarChart data={scenarios} margin={{ top: 4, right: 4, bottom: 4, left: 0 }} barGap={2} barSize={12}>
-          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
-          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 10, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={52} tickFormatter={v => v.toFixed(1)} />
+          <XAxis dataKey="label" stroke={BORDER} tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={{ stroke: BORDER }} />
+          <YAxis stroke={BORDER} tick={{ fill: MUTED, fontSize: 11, fontFamily: "'IBM Plex Mono', monospace" }} tickLine={false} axisLine={false} width={52} tickFormatter={v => v.toFixed(1)} />
           <Tooltip content={<ThreeWayTooltip />} cursor={{ fill: "rgba(255,255,255,0.02)" }} />
           <ReferenceLine y={0} stroke={BORDER} />
           <Bar dataKey="exact"  name="Exact"      radius={[2,2,0,0]}>{scenarios.map((s,i) => <Cell key={i} fill={s.exact  >= 0 ? G    : R} />)}</Bar>
@@ -629,9 +631,9 @@ export default function App() {
           <div style={{ width: 2, height: 16, background: A }} />
           <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.18em", textTransform: "uppercase", color: TEXT }}>Bond Analytics</span>
           <div style={{ width: 1, height: 14, background: BORDER }} />
-          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.16em", color: MUTED }}>Pricing · Duration · Convexity</span>
+          <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.16em", color: MUTED }}>Pricing · Duration · Convexity</span>
         </div>
-        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 9, letterSpacing: "0.12em", color: MUTED }}>
+        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.12em", color: MUTED }}>
           {new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }).toUpperCase()}
         </span>
       </div>
@@ -656,21 +658,21 @@ export default function App() {
 
           <Divider />
 
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: A, marginBottom: 14 }}>Accrued interest</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: A, marginBottom: 14 }}>Accrued interest</div>
           <Field label="Days since last coupon"><NumInput value={daysSince} onChange={v => setDaysSince(parseInt(v) || 0)} step={1} min={0} /></Field>
           <Field label="Days in coupon period"><NumInput value={daysInPer} onChange={v => setDaysInPer(parseInt(v) || 1)} step={1} min={1} /></Field>
 
           <Divider />
 
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, letterSpacing: "0.14em", textTransform: "uppercase", color: A, marginBottom: 14 }}>Position size</div>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: A, marginBottom: 14 }}>Position size</div>
           <Field label="Notional face value ($)"><NumInput value={notional} onChange={v => setNotional(parseFloat(v) || 0)} step={1000000} min={0} /></Field>
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: MUTED, marginTop: -14, marginBottom: 20 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginTop: -14, marginBottom: 20 }}>
             ${(notional / 1e6).toFixed(0)}M · {(notional / face).toLocaleString()} bonds
           </div>
 
           <Divider />
 
-          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 10, color: DIM, lineHeight: 2.4 }}>
+          <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, lineHeight: 2.2 }}>
             <div>D_mac = Σ t · PV(CFₜ) / P</div>
             <div>D_mod = D_mac / (1 + y/freq)</div>
             <div>DV01  = D_mod · P · 0.0001</div>
@@ -693,7 +695,7 @@ export default function App() {
                 borderBottom: `1px solid ${activeTab === id ? A : "transparent"}`,
                 color: activeTab === id ? A : MUTED,
                 fontFamily: "'IBM Plex Mono', monospace",
-                fontSize: 10,
+                fontSize: 11,
                 letterSpacing: "0.16em",
                 textTransform: "uppercase",
                 cursor: "pointer",
