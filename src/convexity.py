@@ -19,7 +19,7 @@ Key insight:
 """
 
 from src.bond import Bond
-from src.risk import modified_duration, macaulay_duration
+from src.risk import modified_duration
 
 
 # ── Convexity ─────────────────────────────────────────────────────────────────
@@ -31,7 +31,8 @@ def convexity(bond: Bond, ytm: float) -> float:
     Convexity = (1/P) × d²P/dy²
               = (1/P) × (1/(1+y)²) × Σ[ t(t+1) × CF / (1+y)ᵗ ]
 
-    For semi-annual bonds: divide by freq² to convert to annual convexity.
+    t counts coupon periods, so the sum is divided by freq² to give
+    convexity in annual units (years²).
 
     Parameters
     ----------
@@ -169,7 +170,7 @@ def taylor_price_change(bond: Bond, ytm: float, dy: float) -> dict:
 # ── Scenario Builder ──────────────────────────────────────────────────────────
 
 def scenario_analysis(bond: Bond, ytm: float,
-                      shocks_bps: list = None) -> list[dict]:
+                      shocks_bps: list | None = None) -> list[dict]:
     """
     Run Taylor decomposition across a range of yield shocks.
 
@@ -227,15 +228,3 @@ def convexity_summary(bond: Bond, ytm: float) -> dict:
         "conv_adj_100bp": 0.5 * conv * p * 0.01 ** 2,
         "conv_adj_200bp": 0.5 * conv * p * 0.02 ** 2,
     }
-
-
-# ── Internal helper ───────────────────────────────────────────────────────────
-
-def _cash_flows_with_pv(bond: Bond, ytm: float):
-    """Internal: return cash flows with PV for use in duration calculations."""
-    y = ytm / bond.freq
-    flows = []
-    for t, cf in bond.cash_flows():
-        pv = cf / (1 + y) ** t
-        flows.append((t, cf, pv))
-    return flows

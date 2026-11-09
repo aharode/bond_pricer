@@ -14,7 +14,6 @@ from src.bond import Bond
 from src.risk import (
     macaulay_duration,
     modified_duration,
-    dollar_duration,
     dv01,
     dv01_exact,
     position_dv01,
@@ -71,7 +70,7 @@ approx_delta = -mod * price * dy
 new_price_approx = price + approx_delta
 new_price_exact  = bond.price(ytm + dy)
 
-print(f"\n  YTM shift: +50 bps")
+print("\n  YTM shift: +50 bps")
 print(f"  ΔP (duration approx) : {approx_delta:+.4f}  → price = {new_price_approx:.4f}")
 print(f"  ΔP (exact reprice)   : {new_price_exact - price:+.4f}  → price = {new_price_exact:.4f}")
 print(f"  Approximation error  : {(new_price_exact - new_price_approx):.4f}  (the convexity term, see convexity_taylor.py)")
@@ -107,7 +106,7 @@ mod_z = modified_duration(zero, ytm_z)
 dv01_z = dv01(zero, ytm_z)
 price_z = zero.price(ytm_z)
 
-print(f"\n  Zero coupon bond: 10Y, YTM=5%, face $1,000")
+print("\n  Zero coupon bond: 10Y, YTM=5%, face $1,000")
 print(f"  Price            : ${price_z:.4f}")
 print(f"  Macaulay Duration: {mac_z:.4f} yr  (should equal maturity = 10)")
 print(f"  Modified Duration: {mod_z:.4f}      (= 10 / 1.05)")
@@ -124,12 +123,12 @@ ytm_c = 0.05
 mac_low  = macaulay_duration(bond_low,  ytm_c)
 mac_high = macaulay_duration(bond_high, ytm_c)
 
-print(f"\n  Both bonds: 10Y maturity, YTM=5%")
+print("\n  Both bonds: 10Y maturity, YTM=5%")
 print(f"\n  Bond A (2% coupon):  D_mac = {mac_low:.4f} yr")
 print(f"  Bond B (8% coupon):  D_mac = {mac_high:.4f} yr")
 print(f"\n  Bond A has HIGHER duration by {mac_low - mac_high:.4f} yr")
-print(f"  Why: lower coupon → less weight on early cash flows")
-print(f"       → more weight concentrated at final principal payment")
+print("  Why: lower coupon → less weight on early cash flows")
+print("       → more weight concentrated at final principal payment")
 
 
 # ── Full summary (risk_summary helper) ───────────────────────────────────────

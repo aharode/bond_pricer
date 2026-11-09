@@ -40,7 +40,7 @@ separator("Problem 2 — Same bond, YTM=5% (at par?)")
 
 p = bond.price(0.05)
 print(f"\n  Price at YTM=5%: {p:.4f}")
-print(f"  Explanation: coupon rate = YTM → bond prices at par (face value)")
+print("  Explanation: coupon rate = YTM → bond prices at par (face value)")
 
 
 # ── Problem 3 ─────────────────────────────────────────────────────────────────

@@ -11,12 +11,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.bond import Bond
-from src.risk import modified_duration, macaulay_duration
+from src.risk import modified_duration
 from src.convexity import (
     convexity,
     convexity_exact,
-    duration_term,
-    convexity_term,
     taylor_price_change,
     scenario_analysis,
     convexity_summary,
@@ -72,7 +70,7 @@ conv  = convexity(bond, ytm)
 result = taylor_price_change(bond, ytm, dy)
 
 print(f"\n  Base price          : ${p:.4f}")
-print(f"  YTM shift           : +100 bps")
+print("  YTM shift           : +100 bps")
 print(f"\n  Duration term       : {result['dur_term']:+.4f}")
 print(f"  Convexity term      : {result['conv_term']:+.4f}  (always positive)")
 print(f"  Taylor total        : {result['taylor_total']:+.4f}")
@@ -90,7 +88,7 @@ dy_down = -0.01
 result_down = taylor_price_change(bond, ytm, dy_down)
 result_up   = taylor_price_change(bond, ytm,  0.01)
 
-print(f"\n  Comparing +100bp vs -100bp:")
+print("\n  Comparing +100bp vs -100bp:")
 print(f"\n  {'':30} {'−100bp':>12} {'+ 100bp':>12}")
 print(f"  {'─'*30} {'─'*12} {'─'*12}")
 print(f"  {'Duration term':30} {result_down['dur_term']:>+12.4f} {result_up['dur_term']:>+12.4f}")
@@ -118,7 +116,7 @@ print(f"\n  5Y 5% coupon bond (YTM=6%):   Convexity = {conv_5y:.4f}")
 print(f"  30Y zero coupon  (YTM=5%):   Convexity = {conv_30z:.4f}")
 print(f"  30Y zero approx N(N+1)/(1+y)²: {conv_approx:.4f}")
 print(f"\n  30Y zero has {conv_30z/conv_5y:.1f}x more convexity than 5Y coupon bond")
-print(f"  Higher maturity + zero coupon = maximum convexity")
+print("  Higher maturity + zero coupon = maximum convexity")
 
 
 # ── Problem 5 ─────────────────────────────────────────────────────────────────
@@ -134,8 +132,8 @@ conv_lo = convexity(bond_lo_conv, ytm_c)
 print(f"\n  Bond A (2% coupon, 10Y):  Convexity = {conv_hi:.4f}")
 print(f"  Bond B (8% coupon, 10Y):  Convexity = {conv_lo:.4f}")
 print(f"\n  Bond A has {conv_hi/conv_lo:.2f}x more convexity")
-print(f"  In volatile rate environments: prefer Bond A (higher convexity)")
-print(f"  You gain more on rallies and lose less on sell-offs")
+print("  In volatile rate environments: prefer Bond A (higher convexity)")
+print("  You gain more on rallies and lose less on sell-offs")
 
 
 # ── Full scenario table ───────────────────────────────────────────────────────

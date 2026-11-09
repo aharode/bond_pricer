@@ -155,7 +155,7 @@ def position_dv01(bond: Bond, ytm: float, notional: float) -> float:
 
 # ── Summary ───────────────────────────────────────────────────────────────────
 
-def risk_summary(bond: Bond, ytm: float, notional: float = None) -> dict:
+def risk_summary(bond: Bond, ytm: float, notional: float | None = None) -> dict:
     """
     Return all risk metrics in one dict.
     Convenient for display and testing.
