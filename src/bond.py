@@ -19,6 +19,14 @@ class Bond:
     """
 
     def __init__(self, face: float, coupon_rate: float, periods: int, freq: int = 2):
+        if not isinstance(periods, int) or periods < 1:
+            raise ValueError(f"periods must be a positive integer (number of coupon periods), got {periods!r}")
+        if not isinstance(freq, int) or freq < 1:
+            raise ValueError(f"freq must be a positive integer (coupons per year), got {freq!r}")
+        if face <= 0:
+            raise ValueError(f"face must be positive, got {face!r}")
+        if coupon_rate < 0:
+            raise ValueError(f"coupon_rate can't be negative, got {coupon_rate!r}")
         self.face = face
         self.coupon_rate = coupon_rate
         self.periods = periods          # total number of coupon periods
@@ -50,6 +58,8 @@ class Bond:
         if not 0.0 <= accrued_fraction < 1.0:
             raise ValueError("accrued_fraction must be in [0, 1)")
         y = ytm / self.freq          # per-period yield
+        if 1 + y <= 0:
+            raise ValueError(f"ytm/freq must be greater than -1 (got ytm={ytm!r}, freq={self.freq})")
         total = 0.0
         for t, cf in self.cash_flows():
             total += cf / (1 + y) ** (t - accrued_fraction)
@@ -110,8 +120,13 @@ class Bond:
             p = self.price(y, accrued_fraction)
             # Numerical derivative dp/dy
             dp = (self.price(y + 1e-6, accrued_fraction) - self.price(y - 1e-6, accrued_fraction)) / 2e-6
-            delta = (p - price) / dp
-            y -= delta
+            y_new = y - (p - price) / dp
+            # A large Newton step can overshoot past ytm = -freq, where prices are
+            # undefined; if so, step halfway to that boundary instead.
+            if 1 + y_new / self.freq <= 0:
+                y_new = (y - self.freq) / 2
+            delta = y - y_new
+            y = y_new
             if abs(delta) < tol:
                 break
 

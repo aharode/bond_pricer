@@ -6,7 +6,13 @@ function calcPrice(face, couponRate, periods, freq, ytm) {
   const C = (couponRate / freq) * face;
   const y = ytm / freq;
   const N = periods * freq;
-  if (Math.abs(y) < 1e-12) return C * N + face;
+  // Near y = 0 the closed form divides two tiny numbers and loses precision,
+  // so sum the discounted cash flows directly there.
+  if (Math.abs(y) < 1e-6) {
+    let pv = 0;
+    for (let t = 1; t <= N; t++) pv += (t < N ? C : C + face) / Math.pow(1 + y, t);
+    return pv;
+  }
   return C * (1 - Math.pow(1 + y, -N)) / y + face / Math.pow(1 + y, N);
 }
 
@@ -30,8 +36,12 @@ function solveYTM(face, couponRate, periods, freq, price, f = 0) {
     const dp = (dirtyPrice(face, couponRate, periods, freq, y + 1e-6, f) -
                 dirtyPrice(face, couponRate, periods, freq, y - 1e-6, f)) / 2e-6;
     if (Math.abs(dp) < 1e-14) break;
-    const delta = (p - price) / dp;
-    y -= delta;
+    let yNew = y - (p - price) / dp;
+    // A large Newton step can overshoot past ytm = -freq, where prices are
+    // undefined; if so, step halfway to that boundary instead.
+    if (1 + yNew / freq <= 0) yNew = (y - freq) / 2;
+    const delta = y - yNew;
+    y = yNew;
     if (Math.abs(delta) < 1e-10) break;
   }
   return y;
@@ -617,6 +627,15 @@ export default function App() {
     ? ytmPct / 100
     : (() => { const p = parseFloat(priceInput); return isNaN(p) || p <= 0 ? cr : solveYTM(face, cr, periods, freq, p + accruedAmt, f); })();
 
+  // Inputs the math can't handle: show a message instead of NaN-filled tabs.
+  // YTM is kept above −50% so the ±10% chart and ±200bp scenarios stay priceable.
+  const inputError =
+    !(face > 0)             ? "Face value must be greater than 0." :
+    couponPct < 0           ? "Coupon rate can't be negative." :
+    !Number.isFinite(ytm)   ? "Couldn't solve for a yield at that price." :
+    ytm <= -0.5             ? "YTM must be above −50%." :
+    null;
+
   return (
     <div style={{ background: BG, minHeight: "100vh", color: TEXT }}>
       <style>{`
@@ -652,7 +671,7 @@ export default function App() {
 
           <Field label="Face value ($)"><NumInput value={face} onChange={v => setFace(parseFloat(v) || 0)} step={100} min={100} /></Field>
           <Field label="Coupon rate (% p.a.)"><NumInput value={couponPct} onChange={v => setCouponPct(parseFloat(v) || 0)} step={0.25} min={0} max={30} /></Field>
-          <Field label="Years to maturity"><NumInput value={periods} onChange={v => setPeriods(parseInt(v) || 1)} step={1} min={1} max={50} /></Field>
+          <Field label="Years to maturity"><NumInput value={periods} onChange={v => setPeriods(Math.min(50, Math.max(1, parseInt(v) || 1)))} step={1} min={1} max={50} /></Field>
           <Field label="Frequency"><FreqToggle value={freq} onChange={setFreq} /></Field>
           {mode === "price"
             ? <Field label="YTM (% p.a.)"><NumInput value={ytmPct} onChange={v => setYtmPct(parseFloat(v) || 0)} step={0.1} min={0.01} /></Field>
@@ -670,7 +689,7 @@ export default function App() {
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, letterSpacing: "0.14em", textTransform: "uppercase", color: A, marginBottom: 14 }}>Position size</div>
           <Field label="Notional face value ($)"><NumInput value={notional} onChange={v => setNotional(parseFloat(v) || 0)} step={1000000} min={0} /></Field>
           <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11, color: MUTED, marginTop: -14, marginBottom: 20 }}>
-            ${(notional / 1e6).toFixed(0)}M · {(notional / face).toLocaleString()} bonds
+            ${(notional / 1e6).toFixed(0)}M · {face > 0 ? (notional / face).toLocaleString() : "—"} bonds
           </div>
 
           <Divider />
@@ -711,9 +730,14 @@ export default function App() {
           </div>
 
           <div style={{ flex: 1, overflowY: "auto" }}>
-            {activeTab === "pricing"   && <PricingTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} mode={mode} daysSince={daysSince} daysInPer={daysInPer} />}
-            {activeTab === "risk"      && <RiskTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />}
-            {activeTab === "convexity" && <ConvexityTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} />}
+            {inputError && (
+              <div style={{ padding: "36px 48px", fontFamily: "'IBM Plex Mono', monospace", fontSize: 13, color: R }}>
+                ⚠ {inputError}
+              </div>
+            )}
+            {!inputError && activeTab === "pricing"   && <PricingTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} mode={mode} daysSince={daysSince} daysInPer={daysInPer} />}
+            {!inputError && activeTab === "risk"      && <RiskTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} notional={notional} />}
+            {!inputError && activeTab === "convexity" && <ConvexityTab face={face} cr={cr} periods={periods} freq={freq} ytm={ytm} />}
           </div>
         </div>
       </div>
